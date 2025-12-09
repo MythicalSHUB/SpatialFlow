@@ -1,0 +1,28 @@
+pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        mavenLocal()
+        gradlePluginPortal()
+        maven { url 'https://jitpack.io' }  // (Optional here but safe)
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }  // Required for GitHub libs
+        maven { url "https://repo1.maven.org/maven2/" } // Backup repo
+    }
+}
+
+rootProject.name = "SpatialFlow"
+include ':app'

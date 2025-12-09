@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SpatialFlow</string>
+
+    <!-- Tabs -->
+    <string name="tab_player">Player</string>
+    <string name="tab_effects">Effects</string>
+
+    <!-- Player Fragment -->
+    <string name="album_art">Album Art</string>
+    <string name="no_song_selected">No Song Selected</string>
+    <string name="select_song">Select Song</string>
+    <string name="change_song">Change Song</string>
+    <string name="save">Save</string>
+
+    <!-- Effects Fragment -->
+    <string name="audio_effects">Audio Effects</string>
+    <string name="eight_d_audio">8D Audio</string>
+    <string name="eight_d_description">Creates circular panning effect - sound rotates around your head in 3D space</string>
+    <string name="rotation_speed">Rotation Speed</string>
+    <string name="bass_boost">Bass Boost</string>
+    <string name="bass_description">Enhance or reduce low frequency sounds. Adds punch and depth to your music</string>
+    <string name="bass_level">Bass Level</string>
+    <string name="processing_audio">Processing audio with effects…</string>
+    <string name="cd_play_pause">Play or Pause Music</string>
+    <string name="cd_stop">Stop Music Playback</string>
+    <string name="tab_settings">Settings</string>
+    <!-- Preference Titles -->
+    <string name="messages_header">Messages</string>
+    <string name="sync_header">Sync</string>
+
+    <!-- Settings Fragment Titles & Headers -->
+    <string name="settings_header_general">General</string>
+    <string name="settings_header_about">About</string>
+
+    <!-- General Settings Items -->
+    <string name="setting_dark_mode">Dark Mode</string>
+    <string name="setting_audio_focus">Handle Audio Focus</string>
+
+    <!-- About Settings Items -->
+    <string name="setting_version_placeholder">App Version</string>
+    <string name="setting_licenses">Open Source Licenses</string>
+
+    <!-- Messages Preferences -->
+    <string name="signature_title">Your signature</string>
+    <string name="reply_title">Default reply action</string>
+
+    <!-- Sync Preferences -->
+    <string name="sync_title">Sync email periodically</string>
+    <string name="attachment_title">Download incoming attachments</string>
+    <string name="attachment_summary_on">Automatically download attachments for incoming emails
+    </string>
+
+    <!-- res/values/strings.xml -->
+    <string name="select_bass_level">Select level</string>
+
+
+
+    <string name="attachment_summary_off">Only download attachments when manually requested</string>
+</resources>

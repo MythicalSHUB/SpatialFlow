@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 🌈 Base seed (only used as fallback on pre-Android 12) -->
+    <color name="seed">#00D9FF</color>
+
+    <!-- 🌞 LIGHT MODE FALLBACK (used if device doesn't support dynamic colors) -->
+    <color name="md_theme_light_primary">#006874</color>
+    <color name="md_theme_light_onPrimary">#FFFFFF</color>
+    <color name="md_theme_light_primaryContainer">#97F0FF</color>
+    <color name="md_theme_light_onPrimaryContainer">#001F24</color>
+
+    <color name="md_theme_light_secondary">#4A6267</color>
+    <color name="md_theme_light_onSecondary">#FFFFFF</color>
+    <color name="md_theme_light_secondaryContainer">#CCE8EC</color>
+    <color name="md_theme_light_onSecondaryContainer">#051F23</color>
+
+    <color name="md_theme_light_tertiary">#525E7D</color>
+    <color name="md_theme_light_onTertiary">#FFFFFF</color>
+    <color name="md_theme_light_tertiaryContainer">#DAE2FF</color>
+    <color name="md_theme_light_onTertiaryContainer">#0E1B37</color>
+
+    <color name="md_theme_light_background">#FAFDFD</color>
+    <color name="md_theme_light_surface">#FAFDFD</color>
+
+
+    <!-- 🌑 DARK MODE FALLBACK -->
+    <color name="md_theme_dark_primary">#4FD8EB</color>
+    <color name="md_theme_dark_onPrimary">#00363D</color>
+    <color name="md_theme_dark_primaryContainer">#004F58</color>
+    <color name="md_theme_dark_onPrimaryContainer">#97F0FF</color>
+
+    <color name="md_theme_dark_secondary">#B1CCCF</color>
+    <color name="md_theme_dark_onSecondary">#1C3438</color>
+    <color name="md_theme_dark_secondaryContainer">#334B4F</color>
+    <color name="md_theme_dark_onSecondaryContainer">#CCE8EC</color>
+
+    <color name="md_theme_dark_tertiary">#BAC6EA</color>
+    <color name="md_theme_dark_onTertiary">#24304D</color>
+    <color name="md_theme_dark_tertiaryContainer">#3B4664</color>
+    <color name="md_theme_dark_onTertiaryContainer">#DAE2FF</color>
+
+    <color name="md_theme_dark_background">#191C1D</color>
+    <color name="md_theme_dark_surface">#191C1D</color>
+
+
+    <!-- ⚠️ Optional utility colors -->
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+
+</resources>
