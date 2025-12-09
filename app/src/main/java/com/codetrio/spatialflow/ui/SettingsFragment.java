@@ -12,6 +12,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.fragment.app.Fragment;
+import com.codetrio.spatialflow.BuildConfig;
 import com.codetrio.spatialflow.R;
 import com.codetrio.spatialflow.update.UpdateManager;
 import com.google.android.material.button.MaterialButton;
@@ -21,8 +22,7 @@ import com.google.android.material.textview.MaterialTextView;
 public class SettingsFragment extends Fragment {
 
     private UpdateManager updateManager;
-    private static final String VERSION_NAME = "1.0";
-    private static final String PREFS_NAME = "AppSettings"; // ✅ Match MainActivity
+    private static final String PREFS_NAME = "AppSettings";
     private static final String KEY_DARK_MODE = "dark_mode";
 
     @Nullable
@@ -50,15 +50,15 @@ public class SettingsFragment extends Fragment {
             }
         });
 
-        // Version display
+        // Version display (dynamic from BuildConfig)
         MaterialTextView tvVersion = view.findViewById(R.id.tvVersion);
-        tvVersion.setText("Version " + VERSION_NAME);
+        tvVersion.setText("Version " + BuildConfig.VERSION_NAME);
 
-        // Update check button
+        // Update check button (dynamic version)
         MaterialButton btnCheckUpdate = view.findViewById(R.id.btnCheckUpdate);
         btnCheckUpdate.setOnClickListener(v -> {
             View rootView = view.findViewById(R.id.settingsRoot);
-            updateManager.checkForUpdate(rootView, VERSION_NAME);
+            updateManager.checkForUpdate(rootView, BuildConfig.VERSION_NAME);
         });
 
         // Social buttons

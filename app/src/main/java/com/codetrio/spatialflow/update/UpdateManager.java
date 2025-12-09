@@ -5,13 +5,14 @@ import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
+import android.widget.Toast;
+
 import androidx.core.content.FileProvider;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
@@ -20,9 +21,8 @@ import java.io.File;
 public class UpdateManager {
 
     private static final String TAG = "UpdateManager";
-    private static final String GITHUB_OWNER = "MythicalSHUB"; // ✅ Your username
-    private static final String GITHUB_REPO = "SpatialFlow";   // ✅ Your repo name
-    // TODO: Replace
+    private static final String GITHUB_OWNER = "MythicalSHUB";
+    private static final String GITHUB_REPO = "SpatialFlow";
 
     private final Context context;
     private final GitHubReleaseClient client;
@@ -105,11 +105,6 @@ public class UpdateManager {
     }
 
     public static void installApk(Context context, File apkFile) {
-        if (!apkFile.exists()) {
-            Log.e(TAG, "APK file does not exist");
-            return;
-        }
-
         // Check install permission for Android 8+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!context.getPackageManager().canRequestPackageInstalls()) {
@@ -121,11 +116,18 @@ public class UpdateManager {
         }
 
         try {
-            Uri apkUri = FileProvider.getUriForFile(
-                    context,
-                    context.getPackageName() + ".provider",
-                    apkFile
-            );
+            Uri apkUri;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                // Android 7.0+ requires FileProvider
+                apkUri = FileProvider.getUriForFile(
+                        context,
+                        context.getPackageName() + ".fileprovider",
+                        apkFile
+                );
+            } else {
+                apkUri = Uri.fromFile(apkFile);
+            }
 
             Intent installIntent = new Intent(Intent.ACTION_VIEW);
             installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
@@ -135,6 +137,7 @@ public class UpdateManager {
 
         } catch (Exception e) {
             Log.e(TAG, "Failed to install APK", e);
+            Toast.makeText(context, "Failed to open installer", Toast.LENGTH_SHORT).show();
         }
     }
 }
