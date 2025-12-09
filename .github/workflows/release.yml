@@ -1,0 +1,53 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Sign APK (optional - skip if unsigned is fine)
+        run: |
+          cd app/build/outputs/apk/release
+          if [ -f "app-release-unsigned.apk" ]; then
+            mv app-release-unsigned.apk app-release.apk
+          fi
+
+      - name: Generate checksum
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum app-release.apk > checksum.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/checksum.txt
+          body: |
+            ## What's New
+            - New features and improvements
+            
+            ### Installation
+            Download `app-release.apk` and install on your Android device.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
