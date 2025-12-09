@@ -168,63 +168,42 @@
                         app:layout_constraintEnd_toEndOf="parent">
 
                         <!-- Circular GitHub Button -->
-                        <!-- Circular GitHub Button -->
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnGitHub"
-                            style="@style/Widget.Material3.Button.Icon"
+                            style="@style/Widget.Material3.Button.IconButton.Filled"
                             android:layout_width="56dp"
                             android:layout_height="56dp"
                             android:layout_marginEnd="12dp"
-                            app:insetLeft="0dp"
-                            app:insetTop="0dp"
-                            app:insetRight="0dp"
-                            app:insetBottom="0dp"
                             app:icon="@drawable/ic_github"
-                            app:iconGravity="textStart"
-                            app:iconPadding="0dp"
                             app:iconSize="24dp"
                             app:iconTint="?attr/colorOnPrimary"
-                            android:backgroundTint="?attr/colorPrimary"
                             app:shapeAppearanceOverlay="@style/ShapeAppearance.SpatialFlow.CircleButton" />
 
                         <!-- Circular Instagram Button -->
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnInstagram"
-                            style="@style/Widget.Material3.Button.Icon"
+                            style="@style/Widget.Material3.Button.IconButton.Filled"
                             android:layout_width="56dp"
                             android:layout_height="56dp"
                             android:layout_marginEnd="12dp"
-                            app:insetLeft="0dp"
-                            app:insetTop="0dp"
-                            app:insetRight="0dp"
-                            app:insetBottom="0dp"
                             app:icon="@drawable/ic_instagram"
-                            app:iconGravity="textStart"
-                            app:iconPadding="0dp"
                             app:iconSize="24dp"
                             app:iconTint="?attr/colorOnPrimary"
-                            android:backgroundTint="?attr/colorPrimary"
                             app:shapeAppearanceOverlay="@style/ShapeAppearance.SpatialFlow.CircleButton" />
 
                         <!-- Circular YouTube Button -->
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnYoutube"
-                            style="@style/Widget.Material3.Button.Icon"
+                            style="@style/Widget.Material3.Button.IconButton.Filled"
                             android:layout_width="56dp"
                             android:layout_height="56dp"
-                            app:insetLeft="0dp"
-                            app:insetTop="0dp"
-                            app:insetRight="0dp"
-                            app:insetBottom="0dp"
                             app:icon="@drawable/ic_youtube"
-                            app:iconGravity="textStart"
-                            app:iconPadding="0dp"
                             app:iconSize="24dp"
                             app:iconTint="?attr/colorOnPrimary"
-                            android:backgroundTint="?attr/colorPrimary"
                             app:shapeAppearanceOverlay="@style/ShapeAppearance.SpatialFlow.CircleButton" />
 
                     </LinearLayout>
+
 
                 </androidx.constraintlayout.widget.ConstraintLayout>
 
