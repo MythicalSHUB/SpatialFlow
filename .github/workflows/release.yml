@@ -22,32 +22,38 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease
+      - name: Build Debug APK (signed with debug key)
+        run: ./gradlew assembleDebug
 
-      - name: Sign APK (optional - skip if unsigned is fine)
+      - name: Rename and prepare APK
         run: |
-          cd app/build/outputs/apk/release
-          if [ -f "app-release-unsigned.apk" ]; then
-            mv app-release-unsigned.apk app-release.apk
-          fi
+          cd app/build/outputs/apk/debug
+          mv app-debug.apk app-release.apk
 
       - name: Generate checksum
         run: |
-          cd app/build/outputs/apk/release
+          cd app/build/outputs/apk/debug
           sha256sum app-release.apk > checksum.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            app/build/outputs/apk/release/app-release.apk
-            app/build/outputs/apk/release/checksum.txt
+            app/build/outputs/apk/debug/app-release.apk
+            app/build/outputs/apk/debug/checksum.txt
           body: |
-            ## What's New
-            - New features and improvements
+            ## SpatialFlow ${{ github.ref_name }}
+            
+            ### What's New
+            - Bug fixes and performance improvements
             
             ### Installation
-            Download `app-release.apk` and install on your Android device.
+            1. Download `app-release.apk`
+            2. Install on your Android device
+            3. Or use in-app "Check for updates" to auto-update
+            
+            ### Technical Details
+            - Min SDK: 24 (Android 7.0+)
+            - Target SDK: 35 (Android 15)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
