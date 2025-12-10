@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/settingsRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    tools:context="com.codetrio.spatialflow.ui.SettingsFragment">
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/settingsScroll"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:clipToPadding="false"
+        android:paddingBottom="12dp"
+        android:scrollbars="vertical"
+        android:fillViewport="true"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="16dp">
+
+            <!-- LEFT SIDE: Settings Controls -->
+            <LinearLayout
+                android:id="@+id/leftContainer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginEnd="16dp"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/rightContainer"
+                app:layout_constraintWidth_percent="0.5">
+
+                <!-- General Section -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_header_general"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorPrimary"
+                    android:paddingBottom="8dp"/>
+
+                <!-- Theme Switch -->
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchTheme"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="52dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:text="@string/setting_dark_mode"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    app:thumbTint="?attr/colorPrimary"
+                    app:trackTint="?attr/colorSurfaceVariant"/>
+
+                <com.google.android.material.divider.MaterialDivider
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="8dp"/>
+
+                <!-- About Section -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="8dp"
+                    android:text="@string/settings_header_about"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorPrimary"
+                    android:paddingBottom="8dp"/>
+
+                <!-- Version Card - Compact -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardVersion"
+                    style="?attr/materialCardViewFilledStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainerHighest"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="14dp">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tvVersion"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"
+                            android:textColor="?attr/colorOnSurface"
+                            tools:text="Version 1.0.0"/>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnCheckUpdate"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:text="Check for updates"
+                            android:textSize="13sp"
+                            app:iconSize="18dp"
+                            app:icon="@drawable/ic_update"
+                            app:cornerRadius="10dp"/>
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Credits Card - Compact -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardCredits"
+                    style="?attr/materialCardViewOutlinedStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                    app:cardCornerRadius="16dp"
+                    app:strokeWidth="1dp"
+                    app:strokeColor="?attr/colorOutlineVariant">
+
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:padding="18dp">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tvCreditsTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:text="Developed by"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:gravity="center"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"/>
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tvDeveloperName"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:text="Shubham Karande"
+                            android:textAppearance="?attr/textAppearanceTitleMedium"
+                            android:textColor="?attr/colorOnSurface"
+                            android:gravity="center"
+                            app:layout_constraintTop_toBottomOf="@id/tvCreditsTitle"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"/>
+
+                        <LinearLayout
+                            android:id="@+id/socialLinksContainer"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:orientation="horizontal"
+                            android:gravity="center"
+                            app:layout_constraintTop_toBottomOf="@id/tvDeveloperName"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent">
+
+                            <!-- Circular GitHub Button - Smaller -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnGitHub"
+                                style="@style/Widget.Material3.Button.IconButton.Filled"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:layout_marginEnd="10dp"
+                                app:icon="@drawable/ic_github"
+                                app:iconSize="20dp"
+                                app:iconTint="?attr/colorOnPrimary"
+                                app:shapeAppearanceOverlay="@style/ShapeAppearance.SpatialFlow.CircleButton"/>
+
+                            <!-- Circular Instagram Button - Smaller -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnInstagram"
+                                style="@style/Widget.Material3.Button.IconButton.Filled"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:layout_marginEnd="10dp"
+                                app:icon="@drawable/ic_instagram"
+                                app:iconSize="20dp"
+                                app:iconTint="?attr/colorOnPrimary"
+                                app:shapeAppearanceOverlay="@style/ShapeAppearance.SpatialFlow.CircleButton"/>
+
+                            <!-- Circular YouTube Button - Smaller -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnYoutube"
+                                style="@style/Widget.Material3.Button.IconButton.Filled"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                app:icon="@drawable/ic_youtube"
+                                app:iconSize="20dp"
+                                app:iconTint="?attr/colorOnPrimary"
+                                app:shapeAppearanceOverlay="@style/ShapeAppearance.SpatialFlow.CircleButton"/>
+
+                        </LinearLayout>
+
+                    </androidx.constraintlayout.widget.ConstraintLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+            </LinearLayout>
+
+            <!-- RIGHT SIDE: App Logo and Branding -->
+            <LinearLayout
+                android:id="@+id/rightContainer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:layout_marginStart="16dp"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toEndOf="@id/leftContainer"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintWidth_percent="0.5"
+                app:layout_constraintVertical_bias="0.4">
+
+                <!-- App Logo - Optimized size for landscape -->
+                <ImageView
+                    android:id="@+id/imgAppLogo"
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
+                    android:src="@drawable/ic_launcher_foreground"
+                    android:contentDescription="@string/app_name"
+                    android:scaleType="fitCenter"
+                    app:tint="?attr/colorPrimary"/>
+
+                <!-- App Name -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tvAppName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textSize="36sp"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginTop="12dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:letterSpacing="0.02"/>
+
+                <!-- Copyright -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tvCopyright"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="© 2025 Shubham Karande"
+                    android:textSize="12sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:layout_marginTop="4dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall"/>
+
+            </LinearLayout>
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

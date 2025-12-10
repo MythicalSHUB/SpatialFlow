@@ -79,7 +79,7 @@ public class UpdateManager {
     private void startDownload(View rootView, String apkUrl) {
         try {
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(apkUrl));
-            request.setTitle("SpatialFlow Update");
+            request.setTitle("SpatialFlow");
             request.setDescription("Downloading latest version...");
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "SpatialFlow-update.apk");

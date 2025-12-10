@@ -11,6 +11,7 @@ import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.Environment;
 import android.provider.MediaStore;
 import android.database.Cursor;
 import android.util.Log;
@@ -33,9 +34,9 @@ import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.slider.Slider;
+import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textview.MaterialTextView;
 import com.arthenica.ffmpegkit.FFmpegKit;
-import com.arthenica.ffmpegkit.ReturnCode;
 
 import java.io.File;
 
@@ -48,6 +49,7 @@ public class PlayerFragment extends Fragment {
     private AudioPlaybackService audioService;
     private boolean serviceBound = false;
 
+    private View rootView;
     private ImageView ivAlbumArt;
     private MaterialTextView tvSongName;
     private MaterialTextView tvCurrentTime;
@@ -80,11 +82,11 @@ public class PlayerFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
-        View view = inflater.inflate(R.layout.fragment_player, container, false);
+        rootView = inflater.inflate(R.layout.fragment_player, container, false);
 
         viewModel = new ViewModelProvider(requireActivity()).get(PlayerSharedViewModel.class);
 
-        initViews(view);
+        initViews(rootView);
         setupObservers();
         setupListeners();
 
@@ -92,7 +94,10 @@ public class PlayerFragment extends Fragment {
         Intent intent = new Intent(getContext(), AudioPlaybackService.class);
         requireContext().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
 
-        return view;
+        // Enable marquee scrolling for long titles
+        tvSongName.setSelected(true);
+
+        return rootView;
     }
 
     private void initViews(View view) {
@@ -275,7 +280,7 @@ public class PlayerFragment extends Fragment {
     private void saveAudioWithEffects() {
         Uri currentUri = viewModel.getSongUri().getValue();
         if (currentUri == null) {
-            Toast.makeText(getContext(), "No song selected to save", Toast.LENGTH_SHORT).show();
+            showSnackbar("No song selected to save", Snackbar.LENGTH_SHORT);
             return;
         }
 
@@ -283,19 +288,20 @@ public class PlayerFragment extends Fragment {
         Boolean isBass = viewModel.getIsBassEnabled().getValue();
 
         if ((is8D == null || !is8D) && (isBass == null || !isBass)) {
-            Toast.makeText(getContext(), "Enable at least one effect before saving", Toast.LENGTH_SHORT).show();
+            showSnackbar("Enable at least one effect before saving", Snackbar.LENGTH_LONG);
             return;
         }
 
-        // Show processing toast
-        Toast.makeText(getContext(), "Processing audio...", Toast.LENGTH_SHORT).show();
+        // Show processing snackbar
+        Snackbar processingSnackbar = Snackbar.make(rootView, "Processing audio...", Snackbar.LENGTH_INDEFINITE);
+        processingSnackbar.show();
 
         // Run FFmpeg processing in background
         new Thread(() -> {
             try {
                 String inputPath = AudioFileManager.getRealPathFromURI(getContext(), currentUri);
                 if (inputPath == null) {
-                    showToast("Could not access audio file");
+                    dismissSnackbarAndShow(processingSnackbar, "Could not access audio file", Snackbar.LENGTH_SHORT);
                     return;
                 }
 
@@ -309,14 +315,11 @@ public class PlayerFragment extends Fragment {
                 int bassGain = viewModel.getBassBoost().getValue() != null ? viewModel.getBassBoost().getValue() : 5;
 
                 // Only 8D is processed via FFmpeg now
-// Bass, EQ, Loudness use Android AudioEffect APIs
                 String command = FFmpegCommandBuilder.build8D(
                         inputPath,
                         outputPath,
-                        0.2f  // ✅ Just the float value for rotation speed (0.2 Hz recommended)
+                        0.2f
                 );
-
-
 
                 Log.d(TAG, "Executing save command: " + command);
 
@@ -330,24 +333,157 @@ public class PlayerFragment extends Fragment {
                     // Copy to MediaStore for Android 10+
                     AudioFileManager.scanFile(getContext(), outputFile);
 
-                    // UPDATED: Correct message for Downloads/SpatialFlow
-                    showToast("✓ Saved to Downloads/SpatialFlow");
+                    // Show success snackbar with action
+                    dismissSnackbarAndShowWithAction(processingSnackbar,
+                            "✓ Saved to Downloads/SpatialFlow",
+                            Snackbar.LENGTH_LONG,
+                            outputFile);
                 } else {
                     Log.e(TAG, "Output file was not created or is empty");
-                    showToast("Failed to save audio");
+                    dismissSnackbarAndShow(processingSnackbar, "Failed to save audio", Snackbar.LENGTH_SHORT);
                 }
 
             } catch (Exception e) {
                 Log.e(TAG, "Error saving audio: " + e.getMessage(), e);
-                showToast("Error: " + e.getMessage());
+                dismissSnackbarAndShow(processingSnackbar, "Error: " + e.getMessage(), Snackbar.LENGTH_LONG);
             }
         }).start();
     }
 
-    private void showToast(String message) {
+    private void showSnackbar(String message, int duration) {
+        if (getActivity() != null && rootView != null) {
+            getActivity().runOnUiThread(() ->
+                    Snackbar.make(rootView, message, duration).show());
+        }
+    }
+
+    private void dismissSnackbarAndShow(Snackbar oldSnackbar, String message, int duration) {
+        if (getActivity() != null && rootView != null) {
+            getActivity().runOnUiThread(() -> {
+                if (oldSnackbar != null) {
+                    oldSnackbar.dismiss();
+                }
+                Snackbar.make(rootView, message, duration).show();
+            });
+        }
+    }
+
+    private void dismissSnackbarAndShowWithAction(Snackbar oldSnackbar, String message, int duration, File outputFile) {
+        if (getActivity() != null && rootView != null) {
+            getActivity().runOnUiThread(() -> {
+                if (oldSnackbar != null) {
+                    oldSnackbar.dismiss();
+                }
+
+                Snackbar snackbar = Snackbar.make(rootView, message, duration);
+                snackbar.setAction("SHOW", v -> {
+                    openSpatialFlowFolder(outputFile);
+                });
+
+                // Set action button color
+                snackbar.show();
+            });
+        }
+    }
+
+    /**
+     * Opens Downloads/SpatialFlow folder in file manager
+     * Uses multiple fallback methods for compatibility
+     */
+    private void openSpatialFlowFolder(File outputFile) {
+        try {
+            // Method 1: Try to open with file manager using direct path
+            if (openFolderWithFileManager(outputFile.getParentFile())) {
+                return;
+            }
+
+            // Method 2: Try to open Downloads and show navigation hint
+            if (openDownloadsFolderWithHint()) {
+                return;
+            }
+
+            // Method 3: Open any file manager app
+            openAnyFileManager();
+
+        } catch (Exception e) {
+            Log.e(TAG, "All methods failed: " + e.getMessage());
+            showFolderLocationToast(outputFile);
+        }
+    }
+
+    /**
+     * Method 1: Open folder directly with file manager
+     */
+    private boolean openFolderWithFileManager(File folder) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(Uri.fromFile(folder), "resource/folder");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            if (intent.resolveActivity(requireContext().getPackageManager()) != null) {
+                startActivity(intent);
+                return true;
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "Method 1 failed: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Method 2: Open Downloads folder with navigation hint
+     */
+    private boolean openDownloadsFolderWithHint() {
+        try {
+            // Get Downloads directory
+            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(Uri.fromFile(downloadsDir), "*/*");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            if (intent.resolveActivity(requireContext().getPackageManager()) != null) {
+                startActivity(intent);
+                Toast.makeText(getContext(), "Navigate to 'SpatialFlow' folder", Toast.LENGTH_LONG).show();
+                return true;
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "Method 2 failed: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Method 3: Open any available file manager
+     */
+    private void openAnyFileManager() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("*/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+
+            if (intent.resolveActivity(requireContext().getPackageManager()) != null) {
+                startActivity(Intent.createChooser(intent, "Open File Manager"));
+                Toast.makeText(getContext(), "Go to Downloads/SpatialFlow", Toast.LENGTH_LONG).show();
+            } else {
+                throw new Exception("No file manager found");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Method 3 failed: " + e.getMessage());
+            throw new RuntimeException("No file manager available");
+        }
+    }
+
+    /**
+     * Shows toast with exact file location
+     */
+    private void showFolderLocationToast(File outputFile) {
         if (getActivity() != null) {
             getActivity().runOnUiThread(() ->
-                    Toast.makeText(getContext(), message, Toast.LENGTH_SHORT).show());
+                    Toast.makeText(getContext(),
+                            "File saved to:\nDownloads/SpatialFlow/\n" + outputFile.getName(),
+                            Toast.LENGTH_LONG).show()
+            );
         }
     }
 
