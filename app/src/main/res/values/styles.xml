@@ -1,30 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
+    <!-- Portrait Toolbar Title -->
     <style name="ToolbarTitleStyle" parent="TextAppearance.Material3.TitleLarge">
         <item name="android:textSize">20sp</item>
         <item name="android:textStyle">bold</item>
         <item name="fontFamily">sans-serif-medium</item>
     </style>
 
+    <!-- Landscape Toolbar Title - Smaller -->
     <style name="ToolbarTitleStyleLandscape" parent="TextAppearance.Material3.TitleMedium">
         <item name="android:textSize">16sp</item>
         <item name="android:textStyle">normal</item>
         <item name="fontFamily">sans-serif-medium</item>
     </style>
-
-    <style name="ShapeAppearance.SpatialFlow.CircleButton"
-        parent="ShapeAppearance.Material3.Corner.Full">
+    <style name="ShapeAppearance.SpatialFlow.CircleButton" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">50%</item>
     </style>
 
-    <style name="BottomNavActiveIndicator"
-        parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
-        <item name="android:width">64dp</item>
-        <item name="android:height">32dp</item>
-        <item name="shapeAppearance">@style/ShapeAppearance.Material3.Corner.Full</item>
-        <item name="android:color">@color/md_theme_light_secondaryContainer</item>
-    </style>
+
+        <style name="BottomNavActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+            <item name="android:color">?attr/colorSecondaryContainer</item>
+            <item name="shapeAppearance">@style/ShapeAppearance.Material3.Corner.Full</item>
+            <item name="android:width">64dp</item>
+            <item name="android:height">32dp</item>
+        </style>
+
+
 
 </resources>

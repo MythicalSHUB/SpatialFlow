@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- App theme (light, Material 3, no action bar) -->
+    <!-- Light app theme -->
     <style name="Theme.SpatialFlow" parent="Theme.Material3.DynamicColors.Light.NoActionBar">
         <!-- Status Bar -->
         <item name="android:statusBarColor">@android:color/transparent</item>
@@ -37,5 +37,4 @@
         <item name="colorOnSurfaceVariant">@color/md_theme_light_onSurfaceVariant</item>
 
     </style>
-
 </resources>
