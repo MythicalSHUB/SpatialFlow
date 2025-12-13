@@ -1,4 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+
+    <!-- App theme (light, Material 3, no action bar) -->
     <style name="Theme.SpatialFlow" parent="Theme.Material3.DynamicColors.Light.NoActionBar">
         <!-- Status Bar -->
         <item name="android:statusBarColor">@android:color/transparent</item>
@@ -8,10 +11,10 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightNavigationBar">true</item>
 
-        <!-- Enable edge-to-edge -->
+        <!-- Edge-to-edge -->
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
 
-        <!-- Material 3 Dynamic Colors -->
+        <!-- Material 3 color scheme -->
         <item name="colorPrimary">@color/md_theme_light_primary</item>
         <item name="colorOnPrimary">@color/md_theme_light_onPrimary</item>
         <item name="colorPrimaryContainer">@color/md_theme_light_primaryContainer</item>
@@ -32,5 +35,7 @@
         <item name="colorSurfaceVariant">@color/md_theme_light_surfaceVariant</item>
         <item name="colorOnSurface">@color/md_theme_light_onSurface</item>
         <item name="colorOnSurfaceVariant">@color/md_theme_light_onSurfaceVariant</item>
+
     </style>
+
 </resources>

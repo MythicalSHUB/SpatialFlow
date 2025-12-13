@@ -61,3 +61,34 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+configurations {
+    all {
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
+
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
+
+    implementation 'com.google.android.material:material:1.13.0-alpha08'
+    implementation 'androidx.core:core-splashscreen:1.0.1'
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
+
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.8.7'
+
+    implementation 'androidx.viewpager2:viewpager2:1.1.0'
+    implementation 'androidx.media:media:1.7.0'
+    implementation "androidx.navigation:navigation-fragment:2.7.0"
+    implementation "androidx.navigation:navigation-ui:2.7.0"
+    implementation libs.preference
+
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+}
