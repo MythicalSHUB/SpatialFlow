@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/navigation_player">
+
+    <fragment
+        android:id="@+id/navigation_player"
+        android:name="com.codetrio.spatialflow.ui.PlayerFragment"
+        android:label="Player" />
+
+    <fragment
+        android:id="@+id/navigation_effects"
+        android:name="com.codetrio.spatialflow.ui.EffectsFragment"
+        android:label="Effects" />
+
+    <fragment
+        android:id="@+id/navigation_settings"
+        android:name="com.codetrio.spatialflow.ui.SettingsFragment"
+        android:label="Settings" />
+
+</navigation>

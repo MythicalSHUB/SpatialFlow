@@ -7,6 +7,7 @@ public class SpatialFlowApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        // Apply dynamic colors to all activities
         DynamicColors.applyToActivitiesIfAvailable(this);
     }
 }

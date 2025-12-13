@@ -10,20 +10,18 @@ android {
         applicationId "com.codetrio.spatialflow"
         minSdk 24
         targetSdk 35
-        versionCode 2
-        versionName "1.1"
+        versionCode 3
+        versionName "1.2"
     }
 
     signingConfigs {
         release {
-            // Using debug keystore for consistent signing across versions
-            storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
-            storePassword "android"
-            keyAlias "androiddebugkey"
-            keyPassword "android"
+            storeFile file("C:/Users/shubh/OneDrive/ドキュメント/SpatialFlow.jks")
+            storePassword "Shubham@k124"
+            keyAlias "ShubhamKarande"
+            keyPassword "Shubham@k124"
         }
     }
-
     buildFeatures {
         viewBinding true
         buildConfig true
@@ -71,6 +69,8 @@ dependencies {
 
     implementation 'androidx.viewpager2:viewpager2:1.1.0'
     implementation 'androidx.media:media:1.7.0'
+    implementation "androidx.navigation:navigation-fragment:2.7.0"
+    implementation "androidx.navigation:navigation-ui:2.7.0"
     implementation libs.preference
 
     testImplementation 'junit:junit:4.13.2'

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Wider spacing on landscape -->
+    <dimen name="margin_screen_horizontal">24dp</dimen>
+    <dimen name="margin_large">24dp</dimen>
+    <dimen name="margin_medium">16dp</dimen>
+
+    <!-- Album art proportions for land -->
+    <dimen name="album_art_width_percent">0.38</dimen>
+    <dimen name="album_art_corner_radius">20dp</dimen>
+    <dimen name="album_art_max_size">360dp</dimen>
+
+    <!-- Landscape player sizing -->
+    <dimen name="slider_track_height">3dp</dimen>
+    <dimen name="slider_thumb_radius">6dp</dimen>
+
+    <!-- Controls -->
+    <dimen name="fab_play_size">52dp</dimen>
+    <dimen name="fab_play_icon_size">28dp</dimen>
+
+    <!-- Action buttons -->
+    <dimen name="button_height">44dp</dimen>
+</resources>

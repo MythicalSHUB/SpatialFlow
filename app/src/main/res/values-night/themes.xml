@@ -1,20 +1,36 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <!-- Base Dark Theme -->
-    <style name="Theme.SpatialFlow" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Enable edge-to-edge the correct Material way -->
+    <style name="Theme.SpatialFlow" parent="Theme.Material3.DynamicColors.Dark.NoActionBar">
+        <!-- Status Bar -->
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
 
-        <!-- Allow content to draw behind system bars -->
-        <item name="android:fitsSystemWindows">false</item>
+        <!-- Navigation Bar -->
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">false</item>
+
+        <!-- Enable edge-to-edge -->
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
 
-        <!-- Remove ActionBar -->
-        <item name="windowActionBar">false</item>
-        <item name="android:windowNoTitle">true</item>
+        <!-- Material 3 Dynamic Colors -->
+        <item name="colorPrimary">@color/md_theme_dark_primary</item>
+        <item name="colorOnPrimary">@color/md_theme_dark_onPrimary</item>
+        <item name="colorPrimaryContainer">@color/md_theme_dark_primaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/md_theme_dark_onPrimaryContainer</item>
 
+        <item name="colorSecondary">@color/md_theme_dark_secondary</item>
+        <item name="colorOnSecondary">@color/md_theme_dark_onSecondary</item>
+        <item name="colorSecondaryContainer">@color/md_theme_dark_secondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/md_theme_dark_onSecondaryContainer</item>
+
+        <item name="colorTertiary">@color/md_theme_dark_tertiary</item>
+        <item name="colorOnTertiary">@color/md_theme_dark_onTertiary</item>
+        <item name="colorTertiaryContainer">@color/md_theme_dark_tertiaryContainer</item>
+        <item name="colorOnTertiaryContainer">@color/md_theme_dark_onTertiaryContainer</item>
+
+        <item name="android:colorBackground">@color/md_theme_dark_background</item>
+        <item name="colorSurface">@color/md_theme_dark_surface</item>
+        <item name="colorSurfaceVariant">@color/md_theme_dark_surfaceVariant</item>
+        <item name="colorOnSurface">@color/md_theme_dark_onSurface</item>
+        <item name="colorOnSurfaceVariant">@color/md_theme_dark_onSurfaceVariant</item>
     </style>
-
 </resources>

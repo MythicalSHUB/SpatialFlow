@@ -14,8 +14,11 @@ import android.view.View;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
+
+import com.codetrio.spatialflow.R;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
+
 import java.io.File;
 
 public class UpdateManager {
@@ -28,89 +31,133 @@ public class UpdateManager {
     private final GitHubReleaseClient client;
 
     public UpdateManager(Context context) {
-        this.context = context;
+        this.context = context.getApplicationContext();
         this.client = new GitHubReleaseClient(GITHUB_OWNER, GITHUB_REPO);
     }
 
+    // -----------------------------------------------------
+    // CHECK FOR UPDATE
+    // -----------------------------------------------------
     public void checkForUpdate(View rootView, String currentVersion) {
-        Snackbar.make(rootView, "Checking for updates...", Snackbar.LENGTH_SHORT).show();
+        showSnackbarAnchored(rootView, "Checking for updates...", Snackbar.LENGTH_SHORT);
 
         new Thread(() -> {
-            GitHubReleaseClient.ReleaseInfo release = client.getLatestRelease();
+            GitHubReleaseClient.ReleaseInfo temp = client.getLatestRelease();
+            final GitHubReleaseClient.ReleaseInfo release = temp; // ✅ FIXED (final variable)
 
             if (release == null) {
-                ((Activity) context).runOnUiThread(() ->
-                        Snackbar.make(rootView, "Failed to check for updates", Snackbar.LENGTH_LONG).show()
+                runOnUi(() ->
+                        showSnackbarAnchored(rootView, "Failed to check for updates", Snackbar.LENGTH_LONG)
                 );
                 return;
             }
 
             boolean isNewer = VersionUtils.isNewer(release.tagName, currentVersion);
 
-            ((Activity) context).runOnUiThread(() -> {
+            runOnUi(() -> {
                 if (isNewer) {
                     promptUpdate(rootView, release);
                 } else {
-                    Snackbar.make(rootView, "You're on the latest version! 🎉", Snackbar.LENGTH_LONG).show();
+                    showSnackbarAnchored(rootView, "You're on the latest version! 🎉", Snackbar.LENGTH_LONG);
                 }
             });
         }).start();
     }
 
+    // -----------------------------------------------------
+    // UPDATE PROMPT
+    // -----------------------------------------------------
     private void promptUpdate(View rootView, GitHubReleaseClient.ReleaseInfo release) {
         String message = "New version " + release.tagName + " is available!\n\n";
-        if (!release.changelog.isEmpty()) {
-            String changelog = release.changelog.length() > 200
-                    ? release.changelog.substring(0, 200) + "..."
+
+        if (release.changelog != null && !release.changelog.isEmpty()) {
+            String changelog = release.changelog.length() > 400
+                    ? release.changelog.substring(0, 400) + "..."
                     : release.changelog;
             message += changelog;
         }
 
-        new MaterialAlertDialogBuilder(context)
+        Activity host = getActivityIfPossible();
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(
+                host != null ? host : rootView.getContext()
+        )
                 .setTitle("Update Available")
                 .setMessage(message)
                 .setPositiveButton("Update", (dialog, which) -> {
                     startDownload(rootView, release.apkUrl);
                 })
-                .setNegativeButton("Later", null)
-                .show();
+                .setNegativeButton("Later", null);
+
+        runOnUi(builder::show);
     }
 
+    // -----------------------------------------------------
+    // START APK DOWNLOAD
+    // -----------------------------------------------------
     private void startDownload(View rootView, String apkUrl) {
         try {
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(apkUrl));
-            request.setTitle("SpatialFlow");
+
+            DownloadManager dm = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm == null) {
+                runOnUi(() -> showSnackbarAnchored(rootView, "Download Manager not available", Snackbar.LENGTH_LONG));
+                return;
+            }
+
+            Uri uri = Uri.parse(apkUrl);
+            DownloadManager.Request request = new DownloadManager.Request(uri);
+
+            request.setTitle("SpatialFlow Update");
             request.setDescription("Downloading latest version...");
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "SpatialFlow-update.apk");
 
-            DownloadManager downloadManager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-            long downloadId = downloadManager.enqueue(request);
+            String filename = "SpatialFlow-update.apk";
+            request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, filename);
 
-            // Save download ID
+            long downloadId = dm.enqueue(request);
+
             SharedPreferences prefs = context.getSharedPreferences("update_prefs", Context.MODE_PRIVATE);
-            prefs.edit().putLong("download_id", downloadId).apply();
+            prefs.edit()
+                    .putLong("download_id", downloadId)
+                    .putString("download_filename", filename)
+                    .apply();
 
-            Snackbar.make(rootView, "Downloading update...", Snackbar.LENGTH_LONG)
-                    .setAction("View", v -> {
-                        Intent intent = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
-                        context.startActivity(intent);
-                    })
-                    .show();
+            runOnUi(() -> {
+                Snackbar sb = makeAnchoredSnackbar(rootView, "Downloading update...", Snackbar.LENGTH_LONG);
+                sb.setAction("View", v -> {
+                    Intent intent = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    context.startActivity(intent);
+                });
+                sb.show();
+            });
 
         } catch (Exception e) {
             Log.e(TAG, "Download failed", e);
-            Snackbar.make(rootView, "Download failed. Please try again.", Snackbar.LENGTH_LONG).show();
+            runOnUi(() ->
+                    showSnackbarAnchored(rootView, "Download failed. Try again.", Snackbar.LENGTH_LONG)
+            );
         }
     }
 
-    public static void installApk(Context context, File apkFile) {
-        // Check install permission for Android 8+
+    // -----------------------------------------------------
+    // INSTALL APK
+    // -----------------------------------------------------
+    public static void installApk(Context ctx, File apkFile) {
+        if (apkFile == null || !apkFile.exists()) {
+            Toast.makeText(ctx, "APK not found", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Context context = ctx.getApplicationContext();
+
+        // Android O+ unknown sources permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!context.getPackageManager().canRequestPackageInstalls()) {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
-                intent.setData(Uri.parse("package:" + context.getPackageName()));
+                Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                        .setData(Uri.parse("package:" + context.getPackageName()))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 context.startActivity(intent);
+                Toast.makeText(context, "Enable permission and retry.", Toast.LENGTH_LONG).show();
                 return;
             }
         }
@@ -119,7 +166,6 @@ public class UpdateManager {
             Uri apkUri;
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                // Android 7.0+ requires FileProvider
                 apkUri = FileProvider.getUriForFile(
                         context,
                         context.getPackageName() + ".fileprovider",
@@ -129,15 +175,47 @@ public class UpdateManager {
                 apkUri = Uri.fromFile(apkFile);
             }
 
-            Intent installIntent = new Intent(Intent.ACTION_VIEW);
-            installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-            installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(installIntent);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
 
         } catch (Exception e) {
             Log.e(TAG, "Failed to install APK", e);
             Toast.makeText(context, "Failed to open installer", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // -----------------------------------------------------
+    // UI HELPERS
+    // -----------------------------------------------------
+    private void runOnUi(Runnable r) {
+        Activity a = getActivityIfPossible();
+        if (a != null) {
+            a.runOnUiThread(r);
+        } else {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(r);
+        }
+    }
+
+    private Snackbar makeAnchoredSnackbar(View rootView, String msg, int duration) {
+        Snackbar sb = Snackbar.make(rootView, msg, duration);
+
+        Activity a = getActivityIfPossible();
+        if (a != null) {
+            View nav = a.findViewById(R.id.nav_view);
+            if (nav != null) sb.setAnchorView(nav);
+        }
+
+        return sb;
+    }
+
+    private void showSnackbarAnchored(View rootView, String msg, int duration) {
+        runOnUi(() -> makeAnchoredSnackbar(rootView, msg, duration).show());
+    }
+
+    private Activity getActivityIfPossible() {
+        if (context instanceof Activity) return (Activity) context;
+        return null;
     }
 }

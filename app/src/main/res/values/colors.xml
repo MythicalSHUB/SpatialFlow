@@ -2,9 +2,7 @@
 <resources>
 
     <!-- 🌈 Base seed (only used as fallback on pre-Android 12) -->
-    <color name="seed">#00D9FF</color>
-
-    <!-- 🌞 LIGHT MODE FALLBACK (used if device doesn't support dynamic colors) -->
+    <!-- 🌞 LIGHT MODE FALLBACK -->
     <color name="md_theme_light_primary">#006874</color>
     <color name="md_theme_light_onPrimary">#FFFFFF</color>
     <color name="md_theme_light_primaryContainer">#97F0FF</color>
@@ -22,6 +20,9 @@
 
     <color name="md_theme_light_background">#FAFDFD</color>
     <color name="md_theme_light_surface">#FAFDFD</color>
+    <color name="md_theme_light_surfaceVariant">#DBE4E6</color>
+    <color name="md_theme_light_onSurface">#191C1D</color>
+    <color name="md_theme_light_onSurfaceVariant">#4A6267</color>
 
 
     <!-- 🌑 DARK MODE FALLBACK -->
@@ -42,10 +43,8 @@
 
     <color name="md_theme_dark_background">#191C1D</color>
     <color name="md_theme_dark_surface">#191C1D</color>
-
-
-    <!-- ⚠️ Optional utility colors -->
-    <color name="black">#000000</color>
-    <color name="white">#FFFFFF</color>
+    <color name="md_theme_dark_surfaceVariant">#3F484A</color>
+    <color name="md_theme_dark_onSurface">#E1E3E3</color>
+    <color name="md_theme_dark_onSurfaceVariant">#CCE8EC</color>
 
 </resources>

@@ -1,190 +1,231 @@
 package com.codetrio.spatialflow;
 
-import android.Manifest;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
-import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.IBinder;
 import android.util.Log;
-import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
-
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.app.AppCompatDelegate;
-import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.lifecycle.ViewModelProvider;
-import androidx.viewpager2.widget.ViewPager2;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.navigation.NavController;
+import androidx.navigation.NavDestination;
+import androidx.navigation.NavOptions;
+import androidx.navigation.Navigation;
+import androidx.navigation.ui.NavigationUI;
 
-import com.codetrio.spatialflow.service.AudioPlaybackService;
-import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel;
-import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.color.DynamicColors;
-import com.google.android.material.tabs.TabLayout;
-import com.google.android.material.tabs.TabLayoutMediator;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
-    private static final int PERMISSION_REQUEST_CODE = 100;
-
-    private static final String PREFS_NAME = "AppSettings";
-    private static final String KEY_DARK_MODE = "dark_mode";
-
-    private PlayerSharedViewModel viewModel;
-    private AudioPlaybackService audioService;
-    private boolean serviceBound = false;
-
-    private TabLayoutMediator tabLayoutMediator;
-
-    private final ServiceConnection serviceConnection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder service) {
-            AudioPlaybackService.LocalBinder binder = (AudioPlaybackService.LocalBinder) service;
-            audioService = binder.getService();
-            serviceBound = true;
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            serviceBound = false;
-            audioService = null;
-        }
-    };
+    private BottomNavigationView navView;
+    private NavController navController;
+    private int previousDestination = R.id.navigation_player; // default
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
-        // 🔥 Load theme before UI
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        boolean isDarkMode = prefs.getBoolean(KEY_DARK_MODE, false);
-
-        AppCompatDelegate.setDefaultNightMode(
-                isDarkMode ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO
-        );
-        Window window = getWindow();
-        window.setDecorFitsSystemWindows(false);
+        // ⭐ ENABLE DYNAMIC COLORS FIRST - This is the key!
+        DynamicColors.applyToActivityIfAvailable(this);
 
         super.onCreate(savedInstanceState);
 
-        // 🎨 Apply Material You (Dynamic Colors)
-        DynamicColors.applyToActivityIfAvailable(this);
-
+        setupSystemBars();
         setContentView(R.layout.activity_main);
 
-        // Toolbar
-        MaterialToolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        ViewCompat.setOnApplyWindowInsetsListener(toolbar, (v, insets) -> {
-            int topInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
-            v.setPadding(
-                    v.getPaddingLeft(),
-                    topInset,
-                    v.getPaddingRight(),
-                    v.getPaddingBottom()
-            );
+        navView = findViewById(R.id.nav_view);
+        navController = Navigation.findNavController(this, R.id.nav_host_fragment_activity_main);
+
+        // apply insets so navView doesn't overlap app content and top area is safe
+        applyWindowInsetsBehavior();
+
+        // color the bottom nav icons/text according to theme - NOW USING DYNAMIC COLORS
+        setupBottomNavColors(navView);
+
+        // wire up Navigation component
+        NavigationUI.setupWithNavController(navView, navController);
+
+        // override selection to provide custom backstack behavior + animated transitions
+        navView.setOnItemSelectedListener(item -> {
+            int destId = item.getItemId();
+            NavDestination current = navController.getCurrentDestination();
+            if (current != null && current.getId() == destId) return true;
+
+            NavOptions navOptions = getNavOptions(previousDestination, destId);
+
+            // Pop to start destination, then navigate so each tab behaves like top-level
+            navController.popBackStack(navController.getGraph().getStartDestinationId(), false);
+            navController.navigate(destId, null, navOptions);
+
+            previousDestination = destId;
+            return true;
+        });
+
+        navView.setOnItemReselectedListener(item -> {
+            // optional: scroll to top or refresh
+        });
+
+        // ensure initial selected item
+        if (savedInstanceState == null) {
+            navController.navigate(R.id.navigation_player);
+            navView.setSelectedItemId(R.id.navigation_player);
+        }
+
+        // (Optional) start background service if your app requires it (uncomment if needed)
+        // startYourService();
+    }
+
+    private void applyWindowInsetsBehavior() {
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.container), (v, insets) -> {
+            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+
+            // add top padding if you want content below status bar (optional)
+            v.setPadding(v.getPaddingLeft(), sys.top, v.getPaddingRight(), v.getPaddingBottom());
             return insets;
         });
-        configureSystemBars();
 
-        viewModel = new ViewModelProvider(this).get(PlayerSharedViewModel.class);
+        // apply bottom navigation margin equal to nav bar inset so it sits above system nav
+        ViewCompat.setOnApplyWindowInsetsListener(navView, (v, insets) -> {
+            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars());
 
-        checkPermissions();
-        setupViewPager();
+            ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+            params.bottomMargin = sys.bottom;
+            v.setLayoutParams(params);
 
-        Intent serviceIntent = new Intent(this, AudioPlaybackService.class);
-        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE);
-        startService(serviceIntent);
-    }
-
-    private void configureSystemBars() {
-        View decorView = getWindow().getDecorView();
-
-        int nightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        boolean darkThemeActive = nightMode == Configuration.UI_MODE_NIGHT_YES;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            getWindow().setDecorFitsSystemWindows(false);
-
-            decorView.getWindowInsetsController().setSystemBarsAppearance(
-                    darkThemeActive ?
-                            0 :
-                            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR,
-                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-            );
-
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            decorView.setSystemUiVisibility(
-                    darkThemeActive ? 0 :
-                            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-            );
-        }
-    }
-
-    private void setupViewPager() {
-        ViewPager2 viewPager = findViewById(R.id.viewPager);
-        TabLayout tabLayout = findViewById(R.id.tabLayout);
-
-        if (viewPager.getAdapter() == null) {
-            viewPager.setAdapter(new ViewPagerAdapter(this));
-        }
-
-        if (tabLayoutMediator != null) {
-            tabLayoutMediator.detach();
-        }
-
-        boolean isLandscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-
-        tabLayoutMediator = new TabLayoutMediator(tabLayout, viewPager, (tab, pos) -> {
-            switch (pos) {
-                case 0:
-                    tab.setIcon(R.drawable.ic_music_note);
-                    if (!isLandscape) tab.setText("Player");
-                    break;
-                case 1:
-                    tab.setIcon(R.drawable.ic_equalizer);
-                    if (!isLandscape) tab.setText("Effects");
-                    break;
-                case 2:
-                    tab.setIcon(R.drawable.ic_settings);
-                    if (!isLandscape) tab.setText("Settings");
-                    break;
-            }
+            // ensure bottom nav is above content visually
+            v.bringToFront();
+            return insets;
         });
 
-        tabLayoutMediator.attach();
+        // ALSO pad inner NavHostFragment's RecyclerView if it exists (not always necessary, but safe)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.nav_host_fragment_activity_main), (v, insets) -> {
+            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            // find inner recycler view if needed later (fragments may host it)
+            return insets;
+        });
+
+        // trigger insets dispatch
+        findViewById(R.id.container).requestApplyInsets();
     }
 
-    private void checkPermissions() {
-        String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                ? Manifest.permission.READ_MEDIA_AUDIO
-                : Manifest.permission.READ_EXTERNAL_STORAGE;
+    private void setupBottomNavColors(BottomNavigationView navView) {
+        // ⭐ USE THEME ATTRIBUTES INSTEAD OF HARDCODED COLORS
+        // This allows dynamic colors to work properly
 
-        if (ContextCompat.checkSelfPermission(this, permission)
-                != PackageManager.PERMISSION_GRANTED) {
+        // Get colors from the current theme (which has dynamic colors applied)
+        android.util.TypedValue typedValue = new android.util.TypedValue();
+        android.content.res.Resources.Theme theme = getTheme();
 
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{permission},
-                    PERMISSION_REQUEST_CODE
-            );
+        // Get active color (selected state) - use onSecondaryContainer for better contrast
+        theme.resolveAttribute(com.google.android.material.R.attr.colorOnSecondaryContainer, typedValue, true);
+        int activeColor = typedValue.data;
+
+        // Get inactive color (unselected state)
+        theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurfaceVariant, typedValue, true);
+        int inactiveColor = typedValue.data;
+
+        // Get background color
+        theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceContainer, typedValue, true);
+        int backgroundColor = typedValue.data;
+
+        // ---- Create ColorStateList for icons ----
+        ColorStateList iconColorStateList = new ColorStateList(
+                new int[][]{
+                        new int[]{android.R.attr.state_checked},     // selected
+                        new int[]{-android.R.attr.state_checked}      // unselected
+                },
+                new int[]{
+                        activeColor,
+                        inactiveColor
+                }
+        );
+
+        // ---- Create ColorStateList for text (uses onSurface for better visibility) ----
+        theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, typedValue, true);
+        int activeTextColor = typedValue.data;
+
+        ColorStateList textColorStateList = new ColorStateList(
+                new int[][]{
+                        new int[]{android.R.attr.state_checked},     // selected
+                        new int[]{-android.R.attr.state_checked}      // unselected
+                },
+                new int[]{
+                        activeTextColor,
+                        inactiveColor
+                }
+        );
+
+        navView.setItemIconTintList(iconColorStateList);
+        navView.setItemTextColor(textColorStateList);
+
+        // ---- BACKGROUND COLOR (uses Material3 dynamic color) ----
+        navView.setBackgroundColor(backgroundColor);
+
+        // ---- Material3 icon size ----
+        navView.setItemIconSize((int) (28 * getResources().getDisplayMetrics().density));
+    }
+
+    private void setupSystemBars() {
+        Window window = getWindow();
+
+        int nightModeFlags = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        boolean isDarkMode = nightModeFlags == Configuration.UI_MODE_NIGHT_YES;
+
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+
+        WindowInsetsControllerCompat insetsController = WindowCompat.getInsetsController(window, window.getDecorView());
+
+        // make status/nav bar transparent so app draws behind them (we handle padding)
+        window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+
+        if (insetsController != null) {
+            insetsController.setAppearanceLightStatusBars(!isDarkMode);
+            insetsController.setAppearanceLightNavigationBars(!isDarkMode);
         }
+    }
+
+    private NavOptions getNavOptions(int fromId, int toId) {
+        int fromIndex = getDestinationIndex(fromId);
+        int toIndex = getDestinationIndex(toId);
+
+        if (toIndex > fromIndex) {
+            return new NavOptions.Builder()
+                    .setEnterAnim(R.anim.slide_in_right)
+                    .setExitAnim(R.anim.slide_out_left)
+                    .setPopEnterAnim(R.anim.slide_in_left)
+                    .setPopExitAnim(R.anim.slide_out_right)
+                    .build();
+        } else {
+            return new NavOptions.Builder()
+                    .setEnterAnim(R.anim.slide_in_left)
+                    .setExitAnim(R.anim.slide_out_right)
+                    .setPopEnterAnim(R.anim.slide_in_right)
+                    .setPopExitAnim(R.anim.slide_out_left)
+                    .build();
+        }
+    }
+
+    private int getDestinationIndex(int id) {
+        if (id == R.id.navigation_player) return 0;
+        if (id == R.id.navigation_effects) return 1;
+        if (id == R.id.navigation_settings) return 2;
+        return 0;
     }
 
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (tabLayoutMediator != null) tabLayoutMediator.detach();
-        if (serviceBound) unbindService(serviceConnection);
+    public boolean onSupportNavigateUp() {
+        return navController.navigateUp() || super.onSupportNavigateUp();
     }
 }

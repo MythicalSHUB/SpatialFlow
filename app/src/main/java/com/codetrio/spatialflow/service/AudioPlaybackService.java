@@ -1,3 +1,4 @@
+// File: AudioPlaybackService.java
 package com.codetrio.spatialflow.service;
 
 import android.app.Notification;
@@ -22,9 +23,11 @@ import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
+
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.media.session.MediaButtonReceiver;
+
 import com.arthenica.ffmpegkit.FFmpegKit;
 import com.arthenica.ffmpegkit.FFmpegSession;
 import com.arthenica.ffmpegkit.ReturnCode;
@@ -68,6 +71,14 @@ public class AudioPlaybackService extends Service {
     private String currentSongName = "SpatialFlow";
     private Bitmap currentAlbumArt = null;
     private boolean is8DEnabled = false;
+
+    // ===== NEW: Processing state tracking to prevent duplicate processing =====
+    private boolean hasProcessed8D = false;
+    private float last8DSpeed = -1f;
+    private String lastProcessedSourcePath = null;
+
+    // ===== NEW: Track the path currently loaded into MediaPlayer =====
+    private String currentlyLoadedPath = null;
 
     public class LocalBinder extends Binder {
         public AudioPlaybackService getService() {
@@ -118,16 +129,24 @@ public class AudioPlaybackService extends Service {
 
         mediaSession.setCallback(new MediaSessionCompat.Callback() {
             @Override
-            public void onPlay() { play(); }
+            public void onPlay() {
+                play();
+            }
 
             @Override
-            public void onPause() { pause(); }
+            public void onPause() {
+                pause();
+            }
 
             @Override
-            public void onStop() { stop(); }
+            public void onStop() {
+                stop();
+            }
 
             @Override
-            public void onSeekTo(long pos) { seekTo((int) pos); }
+            public void onSeekTo(long pos) {
+                seekTo((int) pos);
+            }
         });
 
         updatePlaybackState(PlaybackStateCompat.STATE_NONE);
@@ -442,6 +461,12 @@ public class AudioPlaybackService extends Service {
         Log.d(TAG, "Loading audio from URI: " + uri);
         currentSourceUri = uri;
 
+        // Reset processing state when loading new audio
+        hasProcessed8D = false;
+        last8DSpeed = -1f;
+        lastProcessedSourcePath = null;
+        currentProcessedFilePath = null;
+
         if (mediaPlayer.isPlaying()) {
             mediaPlayer.stop();
         }
@@ -457,6 +482,7 @@ public class AudioPlaybackService extends Service {
 
             mediaPlayer.reset();
             mediaPlayer.setDataSource(currentOriginalFilePath);
+            currentlyLoadedPath = currentOriginalFilePath; // track what is loaded
             mediaPlayer.prepare();
 
             Log.d(TAG, "Audio loaded, duration: " + mediaPlayer.getDuration());
@@ -473,15 +499,10 @@ public class AudioPlaybackService extends Service {
         }
     }
 
-    // ===== 8D FFMPEG PROCESSING =====
-
-    // ===== 8D FFMPEG PROCESSING (ONLY 8D USES FFMPEG) =====
+    // ===== 8D FFMPEG PROCESSING WITH DUPLICATE PREVENTION =====
 
     public void applyEffects(boolean enable8D, boolean enableBass, float speed8D, int bassBoost) {
         Log.d(TAG, "applyEffects called: 8D=" + enable8D + ", speed=" + speed8D);
-
-        // NOTE: Bass, EQ, Loudness, Balance, Speed use Android AudioEffect APIs (real-time)
-        // Only 8D needs FFmpeg pre-processing
 
         if (currentSourceUri == null) {
             Log.e(TAG, "No audio loaded");
@@ -489,17 +510,40 @@ public class AudioPlaybackService extends Service {
         }
 
         if (isProcessing) {
-            Log.w(TAG, "Already processing");
+            Log.w(TAG, "Already processing, ignoring duplicate request");
             return;
         }
 
+        // ===== CRITICAL: Check if we need to reprocess =====
+        String currentSourcePath = AudioFileManager.getRealPathFromURI(this, currentSourceUri);
+
         if (!enable8D) {
             Log.d(TAG, "8D disabled, loading original");
+            is8DEnabled = false;
+            hasProcessed8D = false;
             loadOriginalAudio();
             return;
         }
 
-        Log.d(TAG, "Starting 8D processing with FFmpeg");
+        // Check if already processed with same parameters
+        boolean sameSource = currentSourcePath != null &&
+                currentSourcePath.equals(lastProcessedSourcePath);
+        boolean sameSpeed = Math.abs(speed8D - last8DSpeed) < 0.01f;
+
+        if (hasProcessed8D && sameSource && sameSpeed && currentProcessedFilePath != null) {
+            Log.d(TAG, "8D already processed with same parameters, skipping reprocessing");
+
+            // Just ensure we're playing the processed file if not already
+            if (!isCurrentlyPlayingProcessedFile()) {
+                loadProcessedAudio();
+            }
+
+            is8DEnabled = true;
+            updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
+            return;
+        }
+
+        Log.d(TAG, "Starting NEW 8D processing with FFmpeg");
 
         isProcessing = true;
         this.is8DEnabled = enable8D;
@@ -517,7 +561,7 @@ public class AudioPlaybackService extends Service {
             pause();
         }
 
-        String inputPath = AudioFileManager.getRealPathFromURI(this, currentSourceUri);
+        String inputPath = currentSourcePath;
         if (inputPath == null) {
             Log.e(TAG, "Input path is null");
             finishProcessing(false);
@@ -527,7 +571,6 @@ public class AudioPlaybackService extends Service {
         File outputFile = new File(getCacheDir(), "8d_audio_" + System.currentTimeMillis() + ".m4a");
         String outputPath = outputFile.getAbsolutePath();
 
-        // ONLY 8D PROCESSING VIA FFMPEG
         String command = FFmpegCommandBuilder.build8D(inputPath, outputPath, speed8D);
 
         Log.d(TAG, "FFmpeg command: " + command);
@@ -543,12 +586,18 @@ public class AudioPlaybackService extends Service {
 
                     if (ReturnCode.isSuccess(returnCode)) {
                         Log.d(TAG, "FFmpeg SUCCESS - 8D processing complete");
+
+                        // Save processing state
                         currentProcessedFilePath = outputPath;
+                        hasProcessed8D = true;
+                        last8DSpeed = speed8D;
+                        lastProcessedSourcePath = inputPath;
 
                         handler.post(() -> {
                             try {
                                 mediaPlayer.reset();
                                 mediaPlayer.setDataSource(outputPath);
+                                currentlyLoadedPath = outputPath; // track processed file loaded
                                 mediaPlayer.prepare();
 
                                 Log.d(TAG, "8D file loaded successfully");
@@ -561,6 +610,7 @@ public class AudioPlaybackService extends Service {
                                 }
                             } catch (IOException e) {
                                 Log.e(TAG, "Error loading 8D audio: " + e.getMessage(), e);
+                                hasProcessed8D = false;
                                 finishProcessing(false);
                             }
                         });
@@ -570,6 +620,7 @@ public class AudioPlaybackService extends Service {
                         String failLog = session.getFailStackTrace();
                         Log.e(TAG, "Output: " + output);
                         Log.e(TAG, "Error: " + failLog);
+                        hasProcessed8D = false;
                         handler.post(() -> finishProcessing(false));
                     }
                 },
@@ -588,6 +639,48 @@ public class AudioPlaybackService extends Service {
         );
     }
 
+    private boolean isCurrentlyPlayingProcessedFile() {
+        if (mediaPlayer == null || currentProcessedFilePath == null) {
+            return false;
+        }
+
+        try {
+            return currentlyLoadedPath != null && currentlyLoadedPath.equals(currentProcessedFilePath);
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking processed file: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private void loadProcessedAudio() {
+        if (currentProcessedFilePath == null || !new File(currentProcessedFilePath).exists()) {
+            Log.e(TAG, "Processed file not found");
+            return;
+        }
+
+        boolean wasPlaying = mediaPlayer.isPlaying();
+        int position = mediaPlayer.getCurrentPosition();
+
+        if (wasPlaying) {
+            pause();
+        }
+
+        try {
+            mediaPlayer.reset();
+            mediaPlayer.setDataSource(currentProcessedFilePath);
+            currentlyLoadedPath = currentProcessedFilePath; // track what is loaded
+            mediaPlayer.prepare();
+
+            if (wasPlaying) {
+                mediaPlayer.seekTo(position);
+                play();
+            }
+
+            Log.d(TAG, "Processed audio re-loaded");
+        } catch (IOException e) {
+            Log.e(TAG, "Error loading processed audio: " + e.getMessage(), e);
+        }
+    }
 
     private void loadOriginalAudio() {
         if (currentSourceUri == null) return;
@@ -604,6 +697,7 @@ public class AudioPlaybackService extends Service {
             if (originalPath != null) {
                 mediaPlayer.reset();
                 mediaPlayer.setDataSource(originalPath);
+                currentlyLoadedPath = originalPath; // track what is loaded
                 mediaPlayer.prepare();
 
                 if (wasPlaying) {
@@ -630,6 +724,16 @@ public class AudioPlaybackService extends Service {
         }
         updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
         Log.d(TAG, "Processing finished: " + (success ? "SUCCESS" : "FAILED"));
+    }
+
+    // ===== GETTERS FOR STATE (for fragments to sync UI) =====
+
+    public boolean is8DEnabled() {
+        return is8DEnabled;
+    }
+
+    public boolean isProcessing() {
+        return isProcessing;
     }
 
     // ===== PLAYBACK CONTROLS =====
@@ -759,3 +863,5 @@ public class AudioPlaybackService extends Service {
         stopProgressTracking();
     }
 }
+
+

@@ -292,8 +292,12 @@ public class PlayerFragment extends Fragment {
             return;
         }
 
-        // Show processing snackbar
+        // Show processing snackbar anchored above nav
         Snackbar processingSnackbar = Snackbar.make(rootView, "Processing audio...", Snackbar.LENGTH_INDEFINITE);
+        View bottomNav = getActivity().findViewById(R.id.nav_view);
+        if (bottomNav != null) {
+            processingSnackbar.setAnchorView(bottomNav);
+        }
         processingSnackbar.show();
 
         // Run FFmpeg processing in background
@@ -352,8 +356,17 @@ public class PlayerFragment extends Fragment {
 
     private void showSnackbar(String message, int duration) {
         if (getActivity() != null && rootView != null) {
-            getActivity().runOnUiThread(() ->
-                    Snackbar.make(rootView, message, duration).show());
+            getActivity().runOnUiThread(() -> {
+                Snackbar snackbar = Snackbar.make(rootView, message, duration);
+
+                // Anchor above bottom navigation
+                View bottomNav = getActivity().findViewById(R.id.nav_view);
+                if (bottomNav != null) {
+                    snackbar.setAnchorView(bottomNav);
+                }
+
+                snackbar.show();
+            });
         }
     }
 
@@ -363,7 +376,16 @@ public class PlayerFragment extends Fragment {
                 if (oldSnackbar != null) {
                     oldSnackbar.dismiss();
                 }
-                Snackbar.make(rootView, message, duration).show();
+
+                Snackbar snackbar = Snackbar.make(rootView, message, duration);
+
+                // Anchor above bottom navigation
+                View bottomNav = getActivity().findViewById(R.id.nav_view);
+                if (bottomNav != null) {
+                    snackbar.setAnchorView(bottomNav);
+                }
+
+                snackbar.show();
             });
         }
     }
@@ -376,11 +398,17 @@ public class PlayerFragment extends Fragment {
                 }
 
                 Snackbar snackbar = Snackbar.make(rootView, message, duration);
+
+                // Anchor above bottom navigation
+                View bottomNav = getActivity().findViewById(R.id.nav_view);
+                if (bottomNav != null) {
+                    snackbar.setAnchorView(bottomNav);
+                }
+
                 snackbar.setAction("SHOW", v -> {
                     openSpatialFlowFolder(outputFile);
                 });
 
-                // Set action button color
                 snackbar.show();
             });
         }
