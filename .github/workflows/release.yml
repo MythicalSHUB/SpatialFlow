@@ -20,21 +20,25 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Create debug keystore directory
-        run: mkdir -p ~/.android
-
-      - name: Generate debug keystore
+      # Use your real SpatialFlow.jks from secrets
+      - name: Decode and write release keystore
         run: |
-          keytool -genkey -v -keystore ~/.android/debug.keystore \
-            -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
+          mkdir -p $HOME/keystores
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $HOME/keystores/spatialflow.jks
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Set keystore env vars
+        run: |
+          echo "ANDROID_KEYSTORE_PATH=$HOME/keystores/spatialflow.jks" >> $GITHUB_ENV
+          echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "ANDROID_KEY_ALIAS_PASSWORD=${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}" >> $GITHUB_ENV
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Release APK (with debug keystore)
+      - name: Build Release APK
         run: ./gradlew assembleRelease
 
       - name: Generate checksum
@@ -67,6 +71,6 @@ jobs:
             ### Technical Details
             - Min SDK: 24 (Android 7.0+)
             - Target SDK: 35 (Android 15)
-            - Version Code: 2
+            - Version Code: 3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
