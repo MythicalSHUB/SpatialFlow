@@ -2,6 +2,12 @@ plugins {
     id 'com.android.application'
 }
 
+// Read env vars once (works on CI and locally)
+def ciStoreFile = System.getenv("ANDROID_KEYSTORE_PATH")
+def ciStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+def ciKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+def ciKeyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+
 android {
     namespace 'com.codetrio.spatialflow'
     compileSdk 36
@@ -16,18 +22,18 @@ android {
 
     signingConfigs {
         release {
-            def ciStoreFile = System.getenv("ANDROID_KEYSTORE_PATH")
             if (ciStoreFile != null) {
+                // CI (GitHub Actions)
                 storeFile file(ciStoreFile)
-                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("ANDROID_KEY_ALIAS")
-                keyPassword System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+                storePassword ciStorePassword
+                keyAlias ciKeyAlias
+                keyPassword ciKeyPassword
             } else {
                 // Local build on your PC
-                storeFile file("C:/Users/shubh/OneDrive/ドキュメント/SpatialFlow.jks")
-                storePassword "Shubham@k123"
+                storeFile file("C:/Users/shubh/Documents/SpatialFlow.jks")
+                storePassword "Shubham@k124"
                 keyAlias "ShubhamKarande"
-                keyPassword "Shubham@k123"
+                keyPassword "Shubham@k124"
             }
         }
     }
@@ -46,7 +52,7 @@ android {
         }
 
         debug {
-            signingConfig signingConfigs.release  // Use same key for debug builds too
+            signingConfig signingConfigs.release
         }
     }
 
@@ -54,36 +60,4 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-}
-
-configurations {
-    all {
-        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
-        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
-    }
-}
-
-dependencies {
-    implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
-
-    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
-
-    implementation 'com.google.android.material:material:1.13.0-alpha08'
-    implementation 'androidx.core:core-splashscreen:1.0.1'
-    implementation 'androidx.core:core-ktx:1.15.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
-
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7'
-    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.8.7'
-
-    implementation 'androidx.viewpager2:viewpager2:1.1.0'
-    implementation 'androidx.media:media:1.7.0'
-    implementation "androidx.navigation:navigation-fragment:2.7.0"
-    implementation "androidx.navigation:navigation-ui:2.7.0"
-    implementation libs.preference
-
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
 }
