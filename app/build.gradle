@@ -16,12 +16,22 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("C:/Users/shubh/OneDrive/ドキュメント/SpatialFlow.jks")
-            storePassword "Shubham@k124"
-            keyAlias "ShubhamKarande"
-            keyPassword "Shubham@k124"
+            def ciStoreFile = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (ciStoreFile != null) {
+                storeFile file(ciStoreFile)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+            } else {
+                // Local build on your PC
+                storeFile file("C:/Users/shubh/OneDrive/ドキュメント/SpatialFlow.jks")
+                storePassword "Shubham@k123"
+                keyAlias "ShubhamKarande"
+                keyPassword "Shubham@k123"
+            }
         }
     }
+
     buildFeatures {
         viewBinding true
         buildConfig true
