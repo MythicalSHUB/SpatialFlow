@@ -56,9 +56,7 @@
     <string name="whats_new_positive_button">Got It</string>
     <string name="whats_new_content_template"><![CDATA[
 <b>Version %1$s Highlights:</b><ul>
-<li>Added bottom navigation bar for faster access to main screens</li>
-<li>Refined audio effects screen with improved compact layout</li>
-<li>Bug fixes and performance improvements for smoother playback</li>
+<li>Added Song List in Player</li>
 </ul>]]></string>
 
 

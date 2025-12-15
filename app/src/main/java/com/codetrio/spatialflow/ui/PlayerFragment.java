@@ -10,8 +10,8 @@ import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.IBinder;
 import android.os.Environment;
+import android.os.IBinder;
 import android.provider.MediaStore;
 import android.database.Cursor;
 import android.util.Log;
@@ -43,7 +43,6 @@ import java.io.File;
 public class PlayerFragment extends Fragment {
 
     private static final String TAG = "PlayerFragment";
-    private static final int PICK_AUDIO_REQUEST = 1;
 
     private PlayerSharedViewModel viewModel;
     private AudioPlaybackService audioService;
@@ -61,7 +60,7 @@ public class PlayerFragment extends Fragment {
     private MaterialButton btnChangeSong;
     private MaterialButton btnSavePreset;
 
-    private ServiceConnection serviceConnection = new ServiceConnection() {
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             AudioPlaybackService.LocalBinder binder = (AudioPlaybackService.LocalBinder) service;
@@ -80,7 +79,8 @@ public class PlayerFragment extends Fragment {
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+    public View onCreateView(@NonNull LayoutInflater inflater,
+                             @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         rootView = inflater.inflate(R.layout.fragment_player, container, false);
 
@@ -115,7 +115,7 @@ public class PlayerFragment extends Fragment {
 
     private void setupObservers() {
         viewModel.getIsPlaying().observe(getViewLifecycleOwner(), isPlaying -> {
-            if (isPlaying) {
+            if (isPlaying != null && isPlaying) {
                 btnPlayPauseToggle.setImageResource(R.drawable.ic_pause);
                 btnPlayPauseToggle.setContentDescription("Pause");
             } else {
@@ -125,13 +125,17 @@ public class PlayerFragment extends Fragment {
         });
 
         viewModel.getCurrentPosition().observe(getViewLifecycleOwner(), position -> {
-            seekBar.setValue(position);
-            tvCurrentTime.setText(formatTime(position));
+            if (position != null) {
+                seekBar.setValue(position);
+                tvCurrentTime.setText(formatTime(position));
+            }
         });
 
         viewModel.getDuration().observe(getViewLifecycleOwner(), duration -> {
-            seekBar.setValueTo(duration > 0 ? duration : 100);
-            tvTotalTime.setText(formatTime(duration));
+            if (duration != null) {
+                seekBar.setValueTo(duration > 0 ? duration : 100);
+                tvTotalTime.setText(formatTime(duration));
+            }
         });
 
         viewModel.getSongUri().observe(getViewLifecycleOwner(), uri -> {
@@ -152,12 +156,15 @@ public class PlayerFragment extends Fragment {
         });
 
         btnStop.setOnClickListener(v -> viewModel.stopAudio());
-        btnChangeSong.setOnClickListener(v -> openFilePicker());
+
+        // Open bottom sheet song picker instead of system file picker
+        btnChangeSong.setOnClickListener(v -> openSongPicker());
+
         btnSavePreset.setOnClickListener(v -> saveAudioWithEffects());
 
         seekBar.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
             @Override
-            public void onStartTrackingTouch(@NonNull Slider slider) {}
+            public void onStartTrackingTouch(@NonNull Slider slider) { }
 
             @Override
             public void onStopTrackingTouch(@NonNull Slider slider) {
@@ -166,29 +173,22 @@ public class PlayerFragment extends Fragment {
         });
     }
 
-    private void openFilePicker() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("audio/*");
-        startActivityForResult(intent, PICK_AUDIO_REQUEST);
+    private void openSongPicker() {
+        SongPickerBottomSheet sheet = new SongPickerBottomSheet();
+        sheet.setOnSongSelectedListener((title, artist, path) -> {
+            // Convert file path to Uri and reuse your existing flow
+            Uri uri = Uri.fromFile(new File(path));
+            viewModel.setSongUri(uri);
+        });
+        sheet.show(getParentFragmentManager(), "song_picker");
     }
 
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == PICK_AUDIO_REQUEST && resultCode == Activity.RESULT_OK) {
-            if (data != null && data.getData() != null) {
-                Uri audioUri = data.getData();
-                viewModel.setSongUri(audioUri);
-            }
-        }
-    }
+
 
     private void loadSongMetadata(Uri uri) {
         new Thread(() -> {
             try {
                 MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-
                 if (getContext() == null) return;
 
                 retriever.setDataSource(getContext(), uri);
@@ -226,7 +226,6 @@ public class PlayerFragment extends Fragment {
                         } else {
                             ivAlbumArt.setImageResource(R.drawable.default_album_art);
                         }
-
                         viewModel.updateSongMetadata(finalDisplayName, finalAlbumArt);
                     });
                 }
@@ -292,7 +291,6 @@ public class PlayerFragment extends Fragment {
             return;
         }
 
-        // Show processing snackbar anchored above nav
         Snackbar processingSnackbar = Snackbar.make(rootView, "Processing audio...", Snackbar.LENGTH_INDEFINITE);
         View bottomNav = getActivity().findViewById(R.id.nav_view);
         if (bottomNav != null) {
@@ -300,7 +298,6 @@ public class PlayerFragment extends Fragment {
         }
         processingSnackbar.show();
 
-        // Run FFmpeg processing in background
         new Thread(() -> {
             try {
                 String inputPath = AudioFileManager.getRealPathFromURI(getContext(), currentUri);
@@ -315,10 +312,12 @@ public class PlayerFragment extends Fragment {
 
                 boolean enable8D = is8D != null && is8D;
                 boolean enableBass = isBass != null && isBass;
-                float rotationSpeed = viewModel.get8DSpeed().getValue() != null ? viewModel.get8DSpeed().getValue() : 0.2f;
-                int bassGain = viewModel.getBassBoost().getValue() != null ? viewModel.getBassBoost().getValue() : 5;
+                float rotationSpeed = viewModel.get8DSpeed().getValue() != null
+                        ? viewModel.get8DSpeed().getValue() : 0.2f;
+                int bassGain = viewModel.getBassBoost().getValue() != null
+                        ? viewModel.getBassBoost().getValue() : 5;
 
-                // Only 8D is processed via FFmpeg now
+                // For now only 8D via FFmpeg
                 String command = FFmpegCommandBuilder.build8D(
                         inputPath,
                         outputPath,
@@ -327,21 +326,18 @@ public class PlayerFragment extends Fragment {
 
                 Log.d(TAG, "Executing save command: " + command);
 
-                // Execute FFmpeg synchronously for saving
                 FFmpegKit.execute(command);
 
-                // Check if output file was created successfully
                 if (outputFile.exists() && outputFile.length() > 0) {
                     Log.d(TAG, "File saved successfully: " + outputPath);
-
-                    // Copy to MediaStore for Android 10+
                     AudioFileManager.scanFile(getContext(), outputFile);
 
-                    // Show success snackbar with action
-                    dismissSnackbarAndShowWithAction(processingSnackbar,
+                    dismissSnackbarAndShowWithAction(
+                            processingSnackbar,
                             "✓ Saved to Downloads/SpatialFlow",
                             Snackbar.LENGTH_LONG,
-                            outputFile);
+                            outputFile
+                    );
                 } else {
                     Log.e(TAG, "Output file was not created or is empty");
                     dismissSnackbarAndShow(processingSnackbar, "Failed to save audio", Snackbar.LENGTH_SHORT);
@@ -358,13 +354,10 @@ public class PlayerFragment extends Fragment {
         if (getActivity() != null && rootView != null) {
             getActivity().runOnUiThread(() -> {
                 Snackbar snackbar = Snackbar.make(rootView, message, duration);
-
-                // Anchor above bottom navigation
                 View bottomNav = getActivity().findViewById(R.id.nav_view);
                 if (bottomNav != null) {
                     snackbar.setAnchorView(bottomNav);
                 }
-
                 snackbar.show();
             });
         }
@@ -376,72 +369,51 @@ public class PlayerFragment extends Fragment {
                 if (oldSnackbar != null) {
                     oldSnackbar.dismiss();
                 }
-
                 Snackbar snackbar = Snackbar.make(rootView, message, duration);
-
-                // Anchor above bottom navigation
                 View bottomNav = getActivity().findViewById(R.id.nav_view);
                 if (bottomNav != null) {
                     snackbar.setAnchorView(bottomNav);
                 }
-
                 snackbar.show();
             });
         }
     }
 
-    private void dismissSnackbarAndShowWithAction(Snackbar oldSnackbar, String message, int duration, File outputFile) {
+    private void dismissSnackbarAndShowWithAction(Snackbar oldSnackbar,
+                                                  String message,
+                                                  int duration,
+                                                  File outputFile) {
         if (getActivity() != null && rootView != null) {
             getActivity().runOnUiThread(() -> {
                 if (oldSnackbar != null) {
                     oldSnackbar.dismiss();
                 }
-
                 Snackbar snackbar = Snackbar.make(rootView, message, duration);
-
-                // Anchor above bottom navigation
                 View bottomNav = getActivity().findViewById(R.id.nav_view);
                 if (bottomNav != null) {
                     snackbar.setAnchorView(bottomNav);
                 }
-
-                snackbar.setAction("SHOW", v -> {
-                    openSpatialFlowFolder(outputFile);
-                });
-
+                snackbar.setAction("SHOW", v -> openSpatialFlowFolder(outputFile));
                 snackbar.show();
             });
         }
     }
 
-    /**
-     * Opens Downloads/SpatialFlow folder in file manager
-     * Uses multiple fallback methods for compatibility
-     */
     private void openSpatialFlowFolder(File outputFile) {
         try {
-            // Method 1: Try to open with file manager using direct path
             if (openFolderWithFileManager(outputFile.getParentFile())) {
                 return;
             }
-
-            // Method 2: Try to open Downloads and show navigation hint
             if (openDownloadsFolderWithHint()) {
                 return;
             }
-
-            // Method 3: Open any file manager app
             openAnyFileManager();
-
         } catch (Exception e) {
             Log.e(TAG, "All methods failed: " + e.getMessage());
             showFolderLocationToast(outputFile);
         }
     }
 
-    /**
-     * Method 1: Open folder directly with file manager
-     */
     private boolean openFolderWithFileManager(File folder) {
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW);
@@ -458,12 +430,8 @@ public class PlayerFragment extends Fragment {
         return false;
     }
 
-    /**
-     * Method 2: Open Downloads folder with navigation hint
-     */
     private boolean openDownloadsFolderWithHint() {
         try {
-            // Get Downloads directory
             File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
 
             Intent intent = new Intent(Intent.ACTION_VIEW);
@@ -481,9 +449,6 @@ public class PlayerFragment extends Fragment {
         return false;
     }
 
-    /**
-     * Method 3: Open any available file manager
-     */
     private void openAnyFileManager() {
         try {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
@@ -502,15 +467,14 @@ public class PlayerFragment extends Fragment {
         }
     }
 
-    /**
-     * Shows toast with exact file location
-     */
     private void showFolderLocationToast(File outputFile) {
         if (getActivity() != null) {
             getActivity().runOnUiThread(() ->
-                    Toast.makeText(getContext(),
+                    Toast.makeText(
+                            getContext(),
                             "File saved to:\nDownloads/SpatialFlow/\n" + outputFile.getName(),
-                            Toast.LENGTH_LONG).show()
+                            Toast.LENGTH_LONG
+                    ).show()
             );
         }
     }

@@ -32,7 +32,7 @@
             android:layout_height="match_parent"
             android:scaleType="centerCrop"
             android:background="?attr/colorSurfaceVariant"
-            android:src="@drawable/default_album_art"/>
+            android:src="@drawable/ic_launcher_foreground"/>
     </com.google.android.material.card.MaterialCardView>
 
     <!-- === RIGHT SIDE CONTENT ================================================= -->

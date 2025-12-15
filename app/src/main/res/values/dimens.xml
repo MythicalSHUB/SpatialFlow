@@ -31,7 +31,7 @@
     <dimen name="song_title_max_text_size">24sp</dimen>
 
     <!-- Slider dimensions -->
-    <dimen name="slider_track_height">4dp</dimen>
+    <dimen name="slider_track_height">8dp</dimen>
     <dimen name="slider_thumb_radius">8dp</dimen>
 
     <!-- Button dimensions -->

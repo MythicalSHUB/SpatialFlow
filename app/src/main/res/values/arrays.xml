@@ -9,5 +9,13 @@
         <item>reply</item>
         <item>reply_all</item>
     </string-array>
+    <string-array name="reverb_presets">
+        <item>Off</item>
+        <item>Small Room</item>
+        <item>Large Room</item>
+        <item>Hall</item>
+        <item>Plate</item>
+    </string-array>
+
 
 </resources>
