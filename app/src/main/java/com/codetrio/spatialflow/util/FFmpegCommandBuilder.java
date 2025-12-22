@@ -12,12 +12,16 @@ public class FFmpegCommandBuilder {
     private static final float DEFAULT_ROTATION_SPEED = 0.08f;
 
     /**
-     * Builds optimized professional 8D audio effect.
-     * Uses minimal filter chain for best performance and clean output.
+     * Builds optimized professional 8D audio effect with musical reverb.
+     * Chain:
+     *  1) apulsator  – auto‑panner (0.08 Hz, width 0.75)
+     *  2) extrastereo – gentle stereo widening
+     *  3) adelay     – Haas depth (10 ms)
+     *  4) aecho      – room‑style reverb (preset‑like)
      *
      * @param inputPath     Input audio file path
      * @param outputPath    Output audio file path
-     * @param rotationSpeed 8D rotation speed in Hz (0.08 Hz recommended for smooth circular motion)
+     * @param rotationSpeed 8D rotation speed in Hz (0.08 Hz recommended)
      * @return Complete FFmpeg command string
      */
     public static String build8D(String inputPath, String outputPath, float rotationSpeed) {
@@ -26,41 +30,42 @@ public class FFmpegCommandBuilder {
         rotationSpeed = clampRotationSpeed(rotationSpeed);
 
         // Use StringBuilder with estimated capacity for better performance
-        StringBuilder command = new StringBuilder(256);
+        StringBuilder command = new StringBuilder(320);
 
         // Basic flags
-        command.append("-y")                              // Overwrite output without asking
-                .append(" -loglevel warning")              // Minimal logging
+        command.append("-y")
+                .append(" -loglevel warning")
                 .append(" -i \"").append(inputPath).append("\"");
 
         // Audio-only processing (skip video/album art)
-        command.append(" -vn")                            // No video
-                .append(" -map 0:a");                      // Map only audio stream
+        command.append(" -vn")
+                .append(" -map 0:a");
 
-        // ===== OPTIMIZED 8D FILTER CHAIN =====
+        // ===== OPTIMIZED 8D + SMOOTH REVERB FILTER CHAIN =====
         command.append(" -af \"");
 
-        // 1. APULSATOR - Core 8D circular panning effect
-        command.append("apulsator=hz=").append(String.format("%.2f", rotationSpeed))
-                .append(":width=0.85")                     // 85% panning (professional standard)
-                .append(":mode=sine")                      // Smooth sine wave panning
-                .append(":offset_l=0:offset_r=0.5");      // 180° phase = true circular motion
+        // 1) 8D Auto‑panner – slightly slower, less aggressive width
+        command.append("apulsator=hz=")
+                .append(String.format("%.2f", rotationSpeed))
+                .append(":width=0.75:mode=sine:offset_l=0:offset_r=0.5");
 
-        // 2. STEREO WIDENER - Enhanced stereo field
-        command.append(",extrastereo=m=2.0:c=false");    // 2.0x width (matches pro 8D)
+        // 2) Gentle stereo widener
+        command.append(",extrastereo=m=1.3:c=false");
 
-        // 3. HAAS EFFECT - Spatial depth perception
-        command.append(",adelay=delays=0|15:all=0");     // 15ms delay (sweet spot)
+        // 3) Very small Haas delay
+        command.append(",adelay=delays=0|10:all=0");
+
+        // 4) Shorter, subtler reverb
+        command.append(",aecho=0.9:0.9:40|80:0.20|0.15");
 
         command.append("\"");
 
         // ===== OPTIMIZED AUDIO ENCODING =====
-        command.append(" -c:a aac")                       // AAC codec (best compatibility)
-                .append(" -b:a 320k")                      // 320 kbps (high quality)
-                .append(" -ar 48000")                      // 48 kHz sample rate
-                .append(" -ac 2")                          // Stereo output
-                .append(" -movflags +faststart")           // Enable streaming
-                .append(" -map_metadata 0");               // Preserve metadata
+        command.append(" -c:a alac")
+                .append(" -ar 48000")
+                .append(" -ac 2")
+                .append(" -movflags +faststart")
+                .append(" -map_metadata 0");
 
         // Output file
         command.append(" \"").append(outputPath).append("\"");

@@ -1,50 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base dimensions for small/normal screens (phones in portrait) -->
 
-    <!-- Screen margins -->
-    <dimen name="margin_screen_horizontal">16dp</dimen>
+    <!-- Responsive percentages (ConstraintLayout) -->
+    <!-- Wider and taller art so it fills the card area more -->
+    <dimen name="album_art_width_percent">0.90</dimen>
+    <dimen name="album_art_height_percent">0.60</dimen>
+
+    <!-- Controls area not too wide, keeps center alignment nice -->
+    <dimen name="controls_max_width_percent">0.85</dimen>
+
+    <!-- Fixed Material Design base values -->
+    <dimen name="album_art_min_size">240dp</dimen>
+    <dimen name="album_art_max_size">420dp</dimen>
+    <dimen name="album_art_corner_radius">24dp</dimen>
+    <dimen name="album_art_elevation">6dp</dimen>
+
+    <!-- Horizontal screen margin -->
+    <dimen name="margin_screen_horizontal">20dp</dimen>
+    <dimen name="margin_bottom_spacing">24dp</dimen>
+
+
+    <!-- Generic margins -->
+    <dimen name="margin_xsmall">4dp</dimen>
     <dimen name="margin_small">8dp</dimen>
     <dimen name="margin_medium">16dp</dimen>
     <dimen name="margin_large">24dp</dimen>
+    <dimen name="margin_xlarge">32dp</dimen>
 
-    <!-- Spacing between elements -->
-    <dimen name="padding_top_content">24dp</dimen>
-    <dimen name="margin_between_album_title">16dp</dimen>
-    <dimen name="margin_between_title_slider">12dp</dimen>
-    <dimen name="margin_between_slider_controls">24dp</dimen>
-    <dimen name="margin_between_controls_actions">32dp</dimen>
-    <dimen name="margin_between_control_buttons">16dp</dimen>
-    <dimen name="margin_between_action_buttons">8dp</dimen>
-    <dimen name="margin_time_labels">4dp</dimen>
-    <dimen name="margin_bottom_spacing">16dp</dimen>
+    <!-- Vertical relationships -->
+    <dimen name="margin_between_album_title">20dp</dimen>
+    <dimen name="margin_between_title_slider">16dp</dimen>
+    <dimen name="margin_between_slider_controls">28dp</dimen>
+    <dimen name="margin_between_controls_actions">28dp</dimen>
+    <dimen name="margin_between_control_buttons">20dp</dimen>
+    <dimen name="margin_between_action_buttons">12dp</dimen>
+    <dimen name="margin_time_labels">6dp</dimen>
 
-    <!-- Album art dimensions -->
-    <dimen name="album_art_width_percent">0.90</dimen>
-    <dimen name="album_art_min_size">200dp</dimen>
-    <dimen name="album_art_max_size">400dp</dimen>
-    <dimen name="album_art_corner_radius">16dp</dimen>
-    <dimen name="album_art_elevation">4dp</dimen>
+    <!-- Top and bottom padding to visually center content -->
+    <dimen name="padding_top_content">32dp</dimen>
+    <dimen name="padding_bottom_content">24dp</dimen>
 
-    <!-- Text sizes -->
+    <!-- Text sizes (use autoSizeTextType="uniform" on title) -->
     <dimen name="song_title_min_text_size">18sp</dimen>
-    <dimen name="song_title_max_text_size">24sp</dimen>
+    <dimen name="song_title_max_text_size">26sp</dimen>
+    <dimen name="time_label_text_size">12sp</dimen>
 
-    <!-- Slider dimensions -->
-    <dimen name="slider_track_height">8dp</dimen>
-    <dimen name="slider_thumb_radius">8dp</dimen>
+    <!-- Slider look -->
+    <dimen name="slider_track_height">6dp</dimen>
+    <dimen name="slider_thumb_radius">7dp</dimen>
 
-    <!-- Button dimensions -->
+    <!-- Buttons / FABs -->
+    <!-- Main play button should feel dominant -->
     <dimen name="button_height">48dp</dimen>
     <dimen name="button_text_size">14sp</dimen>
-    <dimen name="button_icon_size">18dp</dimen>
+    <dimen name="button_icon_size">20dp</dimen>
 
-    <!-- FAB dimensions -->
-    <dimen name="fab_play_size">64dp</dimen>
-    <dimen name="fab_play_icon_size">32dp</dimen>
-    <dimen name="fab_stop_size">56dp</dimen>
-    <dimen name="fab_stop_icon_size">24dp</dimen>
+    <dimen name="fab_play_size">72dp</dimen>
+    <dimen name="fab_play_icon_size">34dp</dimen>
 
-    <!-- Max widths -->
-    <dimen name="controls_max_width">600dp</dimen>
+    <dimen name="fab_stop_size">60dp</dimen>
+    <dimen name="fab_stop_icon_size">26dp</dimen>
+
+    <!-- Max widths (for large tablets) -->
+    <dimen name="controls_max_width">620dp</dimen>
+
 </resources>

@@ -59,7 +59,6 @@ public class EffectsFragment extends Fragment {
             this.service = audioService;
             Log.d(TAG, "Service connected: " + (audioService != null));
 
-            // Apply current settings to service when connected
             if (service != null) {
                 applyAllEffectsToService();
             }
@@ -68,7 +67,6 @@ public class EffectsFragment extends Fragment {
         // 8D Audio
         viewModel.getIs8DEnabled().observe(getViewLifecycleOwner(), enabled -> {
             if (enabled != null) {
-                // Prevent listener triggers when setting programmatically
                 ignoreSwitchEvents = true;
                 if (binding != null) binding.switch8D.setChecked(enabled);
                 ignoreSwitchEvents = false;
@@ -164,7 +162,7 @@ public class EffectsFragment extends Fragment {
 
         // Processing Status
         viewModel.getIsProcessing().observe(getViewLifecycleOwner(), isProcessing -> {
-            if (binding == null) return; // defensive check to avoid NPE
+            if (binding == null) return;
             if (isProcessing != null) {
                 binding.cardProcessing.setVisibility(isProcessing ? View.VISIBLE : View.GONE);
 
@@ -172,6 +170,7 @@ public class EffectsFragment extends Fragment {
                     disableControls();
                 } else {
                     enableControls();
+                    refreshAllEffects();
                 }
 
                 Log.d(TAG, "Processing: " + isProcessing);
@@ -179,7 +178,7 @@ public class EffectsFragment extends Fragment {
         });
 
         viewModel.getProcessingProgress().observe(getViewLifecycleOwner(), progress -> {
-            if (binding == null) return; // defensive check
+            if (binding == null) return;
             if (progress != null && progress > 0) {
                 binding.progressBar.setIndeterminate(false);
                 binding.progressBar.setProgress(progress);
@@ -188,7 +187,10 @@ public class EffectsFragment extends Fragment {
 
                 if (progress >= 100) {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        if (binding != null) binding.cardProcessing.setVisibility(View.GONE);
+                        if (binding != null) {
+                            binding.cardProcessing.setVisibility(View.GONE);
+                            refreshAllEffects();
+                        }
                     }, 1500);
                 }
             }
@@ -200,7 +202,6 @@ public class EffectsFragment extends Fragment {
 
         // ===== 8D AUDIO (FFMPEG PROCESSING) =====
         binding.switch8D.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            // Ignore programmatic updates
             if (ignoreSwitchEvents) return;
 
             Log.d(TAG, "8D switch toggled (user): " + isChecked);
@@ -210,7 +211,6 @@ public class EffectsFragment extends Fragment {
                 service.set8DEnabled(isChecked);
             }
 
-            // Trigger FFmpeg reprocessing only when user toggles the switch
             viewModel.triggerReprocessing();
         });
 
@@ -219,7 +219,7 @@ public class EffectsFragment extends Fragment {
             viewModel.setBassEnabled(isChecked);
             binding.sliderBassBoost.setEnabled(isChecked);
             if (service != null) {
-                service.setBassEnabled(isChecked); // Real-time via BassBoost API
+                service.setBassEnabled(isChecked);
             }
         });
 
@@ -229,7 +229,7 @@ public class EffectsFragment extends Fragment {
                 binding.tvBassBoostValue.setText(String.format(Locale.getDefault(), "%+d dB", dbValue));
                 viewModel.setBassBoost(dbValue);
                 if (service != null && binding.switchBass.isChecked()) {
-                    service.setBassBoost(dbValue); // Real-time via BassBoost API
+                    service.setBassBoost(dbValue);
                 }
             }
         });
@@ -239,7 +239,7 @@ public class EffectsFragment extends Fragment {
             viewModel.setEqualizerEnabled(isChecked);
             enableEqualizerSliders(isChecked);
             if (service != null) {
-                service.setEqualizerEnabled(isChecked); // Real-time via Equalizer API
+                service.setEqualizerEnabled(isChecked);
             }
         });
 
@@ -254,7 +254,7 @@ public class EffectsFragment extends Fragment {
             viewModel.setLoudnessEnabled(isChecked);
             binding.sliderLoudness.setEnabled(isChecked);
             if (service != null) {
-                service.setLoudnessEnabled(isChecked); // Real-time via LoudnessEnhancer API
+                service.setLoudnessEnabled(isChecked);
             }
         });
 
@@ -264,7 +264,7 @@ public class EffectsFragment extends Fragment {
                 binding.tvLoudnessValue.setText(String.format(Locale.getDefault(), "+%d dB", gainValue));
                 viewModel.setLoudnessGain(gainValue);
                 if (service != null && binding.switchLoudness.isChecked()) {
-                    service.setLoudnessGain(gainValue); // Real-time via LoudnessEnhancer API
+                    service.setLoudnessGain(gainValue);
                 }
             }
         });
@@ -277,7 +277,7 @@ public class EffectsFragment extends Fragment {
                 binding.tvBalanceValue.setText("Center");
                 viewModel.setBalance(0);
                 if (service != null) {
-                    service.setBalance(0); // Real-time via MediaPlayer.setVolume()
+                    service.setBalance(0);
                 }
             }
             Log.d(TAG, "Balance toggle: " + (isChecked ? "ON" : "OFF"));
@@ -289,18 +289,33 @@ public class EffectsFragment extends Fragment {
                 updateBalanceLabel(balanceValue);
                 viewModel.setBalance(balanceValue);
                 if (service != null && binding.switchBalance.isChecked()) {
-                    service.setBalance(balanceValue); // Real-time via MediaPlayer.setVolume()
+                    service.setBalance(balanceValue);
                 }
             }
         });
 
         // ===== PLAYBACK SPEED (REAL-TIME VIA PLAYBACKPARAMS) =====
+        binding.switchSpeed.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            binding.sliderSpeed.setEnabled(isChecked);
+
+            if (!isChecked) {
+                // Reset to 1.0x when disabled
+                binding.sliderSpeed.setValue(1.0f);
+                binding.tvSpeedValue.setText("1.00x");
+                viewModel.setPlaybackSpeed(1.0f);
+                if (service != null) {
+                    service.setPlaybackSpeed(1.0f);
+                }
+            }
+            Log.d(TAG, "Speed toggle: " + (isChecked ? "ON" : "OFF"));
+        });
+
         binding.sliderSpeed.addOnChangeListener((slider, value, fromUser) -> {
             if (fromUser) {
                 binding.tvSpeedValue.setText(String.format(Locale.getDefault(), "%.2fx", value));
                 viewModel.setPlaybackSpeed(value);
-                if (service != null) {
-                    service.setPlaybackSpeed(value); // Real-time via PlaybackParams API
+                if (service != null && binding.switchSpeed.isChecked()) {
+                    service.setPlaybackSpeed(value);
                 }
             }
         });
@@ -321,7 +336,6 @@ public class EffectsFragment extends Fragment {
                     case 4: viewModel.setEqBand5(dbValue); break;
                 }
 
-                // Real-time via Equalizer API
                 if (service != null && binding != null && binding.switchEqualizer.isChecked()) {
                     service.setEqBandGain(bandIndex, dbValue);
                 }
@@ -371,6 +385,7 @@ public class EffectsFragment extends Fragment {
         binding.sliderLoudness.setEnabled(false);
         binding.switchBalance.setEnabled(false);
         binding.sliderBalance.setEnabled(false);
+        binding.switchSpeed.setEnabled(false);
         binding.sliderSpeed.setEnabled(false);
     }
 
@@ -393,19 +408,89 @@ public class EffectsFragment extends Fragment {
         binding.switchBalance.setEnabled(true);
         binding.sliderBalance.setEnabled(binding.switchBalance.isChecked());
 
-        binding.sliderSpeed.setEnabled(true);
+        binding.switchSpeed.setEnabled(true);
+        binding.sliderSpeed.setEnabled(binding.switchSpeed.isChecked());
+    }
+
+    private void refreshAllEffects() {
+        if (service == null || binding == null) return;
+
+        Log.d(TAG, "Refreshing all effects after 8D processing");
+
+        applyAllEffectsToService();
+
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (binding == null) return;
+
+            // Refresh Bass
+            Boolean bassEnabled = viewModel.getIsBassEnabled().getValue();
+            if (bassEnabled != null && bassEnabled) {
+                Integer bassBoost = viewModel.getBassBoost().getValue();
+                if (bassBoost != null) {
+                    binding.sliderBassBoost.setValue(bassBoost);
+                    binding.tvBassBoostValue.setText(String.format(Locale.getDefault(), "%+d dB", bassBoost));
+                }
+            }
+
+            // Refresh EQ
+            Boolean eqEnabled = viewModel.getIsEqualizerEnabled().getValue();
+            if (eqEnabled != null && eqEnabled) {
+                Integer band1 = viewModel.getEqBand1().getValue();
+                if (band1 != null) binding.sliderBand1.setValue(band1);
+
+                Integer band2 = viewModel.getEqBand2().getValue();
+                if (band2 != null) binding.sliderBand2.setValue(band2);
+
+                Integer band3 = viewModel.getEqBand3().getValue();
+                if (band3 != null) binding.sliderBand3.setValue(band3);
+
+                Integer band4 = viewModel.getEqBand4().getValue();
+                if (band4 != null) binding.sliderBand4.setValue(band4);
+
+                Integer band5 = viewModel.getEqBand5().getValue();
+                if (band5 != null) binding.sliderBand5.setValue(band5);
+            }
+
+            // Refresh Loudness
+            Boolean loudnessEnabled = viewModel.getIsLoudnessEnabled().getValue();
+            if (loudnessEnabled != null && loudnessEnabled) {
+                Integer loudnessGain = viewModel.getLoudnessGain().getValue();
+                if (loudnessGain != null) {
+                    binding.sliderLoudness.setValue(loudnessGain);
+                    binding.tvLoudnessValue.setText(String.format(Locale.getDefault(), "+%d dB", loudnessGain));
+                }
+            }
+
+            // Refresh Balance
+            if (binding.switchBalance.isChecked()) {
+                Integer balance = viewModel.getBalance().getValue();
+                if (balance != null) {
+                    binding.sliderBalance.setValue(balance);
+                    updateBalanceLabel(balance);
+                }
+            }
+
+            // Refresh Speed
+            if (binding.switchSpeed.isChecked()) {
+                Float speed = viewModel.getPlaybackSpeed().getValue();
+                if (speed != null) {
+                    binding.sliderSpeed.setValue(speed);
+                    binding.tvSpeedValue.setText(String.format(Locale.getDefault(), "%.2fx", speed));
+                }
+            }
+
+            Log.d(TAG, "All UI controls refreshed");
+        }, 200);
     }
 
     private void applyAllEffectsToService() {
         if (service == null) return;
 
-        // Apply 8D (but do NOT trigger processing here - only user actions do)
         Boolean is8D = viewModel.getIs8DEnabled().getValue();
         if (is8D != null) {
             service.set8DEnabled(is8D);
         }
 
-        // Apply Bass
         Boolean bassEnabled = viewModel.getIsBassEnabled().getValue();
         if (bassEnabled != null) {
             service.setBassEnabled(bassEnabled);
@@ -417,7 +502,6 @@ public class EffectsFragment extends Fragment {
             }
         }
 
-        // Apply Equalizer
         Boolean eqEnabled = viewModel.getIsEqualizerEnabled().getValue();
         if (eqEnabled != null) {
             service.setEqualizerEnabled(eqEnabled);
@@ -439,7 +523,6 @@ public class EffectsFragment extends Fragment {
             }
         }
 
-        // Apply Loudness
         Boolean loudnessEnabled = viewModel.getIsLoudnessEnabled().getValue();
         if (loudnessEnabled != null) {
             service.setLoudnessEnabled(loudnessEnabled);
@@ -451,7 +534,6 @@ public class EffectsFragment extends Fragment {
             }
         }
 
-        // Apply Balance
         if (binding != null && binding.switchBalance.isChecked()) {
             Integer balance = viewModel.getBalance().getValue();
             if (balance != null) {
@@ -459,10 +541,11 @@ public class EffectsFragment extends Fragment {
             }
         }
 
-        // Apply Speed
-        Float speed = viewModel.getPlaybackSpeed().getValue();
-        if (speed != null) {
-            service.setPlaybackSpeed(speed);
+        if (binding != null && binding.switchSpeed.isChecked()) {
+            Float speed = viewModel.getPlaybackSpeed().getValue();
+            if (speed != null) {
+                service.setPlaybackSpeed(speed);
+            }
         }
 
         Log.d(TAG, "All effects applied to service");

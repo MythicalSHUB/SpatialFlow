@@ -26,6 +26,9 @@
             <item name="android:height">32dp</item>
         </style>
 
+    <style name="AppModalStyle" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">?attr/colorSurfaceContainerLow</item>
+    </style>
 
 
 </resources>

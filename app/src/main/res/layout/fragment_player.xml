@@ -54,6 +54,7 @@
                     android:layout_height="match_parent"
                     android:scaleType="centerCrop"
                     android:src="@drawable/ic_launcher_foreground"
+                    app:tint="?attr/colorPrimary"
                     tools:ignore="ContentDescription"
                     android:background="?attr/colorSurfaceVariant"/>
 
@@ -190,7 +191,6 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintWidth_max="@dimen/controls_max_width">
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnChangeSong"
                     style="@style/Widget.Material3.Button.OutlinedButton"

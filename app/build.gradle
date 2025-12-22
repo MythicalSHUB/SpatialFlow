@@ -16,8 +16,8 @@ android {
         applicationId "com.codetrio.spatialflow"
         minSdk 24
         targetSdk 35
-        versionCode 4
-        versionName "1.3"
+        versionCode 5
+        versionName "1.4"
     }
 
     signingConfigs {
@@ -72,8 +72,11 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
 
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    implementation 'androidx.palette:palette:1.0.0'
 
-    implementation 'com.google.android.material:material:1.13.0-alpha08'
+
+    implementation 'com.google.android.material:material:1.14.0-alpha08'
     implementation 'androidx.core:core-splashscreen:1.0.1'
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
@@ -86,6 +89,7 @@ dependencies {
     implementation 'androidx.media:media:1.7.0'
     implementation "androidx.navigation:navigation-fragment:2.7.0"
     implementation "androidx.navigation:navigation-ui:2.7.0"
+
     implementation libs.preference
 
     testImplementation 'junit:junit:4.13.2'

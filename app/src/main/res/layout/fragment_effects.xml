@@ -275,7 +275,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-                            android:stepSize="1"
+
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -319,7 +319,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-                            android:stepSize="1"
+
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -363,7 +363,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-                            android:stepSize="1"
+
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -407,7 +407,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-                            android:stepSize="1"
+
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -451,7 +451,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-                            android:stepSize="1"
+
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -655,7 +655,6 @@
                             android:valueFrom="-50"
                             android:valueTo="50"
                             android:value="0"
-                            android:stepSize="5"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
                             app:haloColor="?attr/colorPrimaryContainer"
@@ -714,6 +713,7 @@
                     android:background="?attr/colorSurface" />
 
                 <!-- Playback Speed Section -->
+                <!-- Playback Speed Section - FIXED ALIGNMENT -->
                 <LinearLayout
                     android:id="@+id/sectionSpeed"
                     android:layout_width="match_parent"
@@ -721,22 +721,41 @@
                     android:orientation="vertical"
                     android:padding="20dp">
 
-                    <com.google.android.material.textview.MaterialTextView
-                        android:id="@+id/tvSpeedTitle"
+                    <!-- Title and Toggle Row -->
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:paddingTop="2dp"
-                        android:text="Playback Speed"
-                        android:textAppearance="?attr/textAppearanceTitleLarge"
-                        android:textColor="?attr/colorOnSurface" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tvSpeedTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:paddingTop="2dp"
+                            android:text="Playback Speed"
+                            android:textAppearance="?attr/textAppearanceTitleLarge"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <!-- Properly aligned toggle -->
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switchSpeed"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            app:thumbTint="?attr/colorPrimary"
+                            app:trackTint="?attr/colorSurfaceVariant"
+                            app:trackDecorationTint="?attr/colorOutlineVariant" />
+                    </LinearLayout>
 
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/tvSpeedDescription"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="Adjust playback speed without changing pitch"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:text="Adjust playback speed"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
                         android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <LinearLayout
@@ -785,7 +804,9 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginTop="8dp">
+                        android:layout_marginTop="8dp"
+                        android:paddingStart="20dp"
+                        android:paddingEnd="20dp">
 
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="wrap_content"
@@ -793,6 +814,19 @@
                             android:text="0.5x"
                             android:textAppearance="?attr/textAppearanceBodySmall"
                             android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        <View
+                            android:layout_width="0dp"
+                            android:layout_height="0dp"
+                            android:layout_weight="1" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="1.0x"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorPrimary"
+                            android:textStyle="bold" />
 
                         <View
                             android:layout_width="0dp"

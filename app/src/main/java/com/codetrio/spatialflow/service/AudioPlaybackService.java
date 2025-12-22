@@ -9,10 +9,10 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.media.AudioManager;
+import android.media.MediaPlayer;
 import android.media.audiofx.BassBoost;
 import android.media.audiofx.Equalizer;
 import android.media.audiofx.LoudnessEnhancer;
-import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
@@ -29,7 +29,6 @@ import androidx.core.app.NotificationCompat;
 import androidx.media.session.MediaButtonReceiver;
 
 import com.arthenica.ffmpegkit.FFmpegKit;
-import com.arthenica.ffmpegkit.FFmpegSession;
 import com.arthenica.ffmpegkit.ReturnCode;
 import com.codetrio.spatialflow.MainActivity;
 import com.codetrio.spatialflow.R;
@@ -48,8 +47,6 @@ public class AudioPlaybackService extends Service {
 
     private static final String ACTION_PLAY = "com.codetrio.spatialflow.ACTION_PLAY";
     private static final String ACTION_PAUSE = "com.codetrio.spatialflow.ACTION_PAUSE";
-    private static final String ACTION_STOP = "com.codetrio.spatialflow.ACTION_STOP";
-    private static final String ACTION_TOGGLE_8D = "com.codetrio.spatialflow.ACTION_TOGGLE_8D";
 
     private final IBinder binder = new LocalBinder();
     private MediaPlayer mediaPlayer;
@@ -66,18 +63,17 @@ public class AudioPlaybackService extends Service {
     private String currentOriginalFilePath;
     private String currentProcessedFilePath;
     private boolean isProcessing = false;
-    private int savedPosition = 0;
 
     private String currentSongName = "SpatialFlow";
     private Bitmap currentAlbumArt = null;
     private boolean is8DEnabled = false;
 
-    // ===== NEW: Processing state tracking to prevent duplicate processing =====
+    // 8D processing state
     private boolean hasProcessed8D = false;
     private float last8DSpeed = -1f;
     private String lastProcessedSourcePath = null;
 
-    // ===== NEW: Track the path currently loaded into MediaPlayer =====
+    // Track which file MediaPlayer currently uses
     private String currentlyLoadedPath = null;
 
     public class LocalBinder extends Binder {
@@ -154,7 +150,12 @@ public class AudioPlaybackService extends Service {
     }
 
     private void updatePlaybackState(int state) {
-        long position = mediaPlayer != null ? mediaPlayer.getCurrentPosition() : 0;
+        long position = 0;
+        try {
+            position = mediaPlayer != null ? mediaPlayer.getCurrentPosition() : 0;
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "Cannot get position in current state");
+        }
 
         PlaybackStateCompat.Builder stateBuilder = new PlaybackStateCompat.Builder()
                 .setActions(
@@ -169,11 +170,17 @@ public class AudioPlaybackService extends Service {
     }
 
     private void updateMediaMetadata() {
+        long duration = 0;
+        try {
+            duration = mediaPlayer != null && mediaPlayer.getDuration() > 0 ? mediaPlayer.getDuration() : 0;
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "Cannot get duration in current state");
+        }
+
         MediaMetadataCompat.Builder metadataBuilder = new MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentSongName)
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "SpatialFlow")
-                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION,
-                        mediaPlayer != null ? mediaPlayer.getDuration() : 0);
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration);
 
         if (currentAlbumArt != null) {
             metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, currentAlbumArt);
@@ -185,6 +192,7 @@ public class AudioPlaybackService extends Service {
     private Notification createNotification(boolean isPlaying) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        notificationIntent.putExtra(MainActivity.EXTRA_OPEN_PLAYER, true);
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this, 0, notificationIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
@@ -196,20 +204,10 @@ public class AudioPlaybackService extends Service {
                 this, 0, playPauseIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        Intent stopIntent = new Intent(this, AudioPlaybackService.class).setAction(ACTION_STOP);
-        PendingIntent stopPendingIntent = PendingIntent.getService(
-                this, 2, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-
-        Intent toggle8DIntent = new Intent(this, AudioPlaybackService.class).setAction(ACTION_TOGGLE_8D);
-        PendingIntent toggle8DPendingIntent = PendingIntent.getService(
-                this, 3, toggle8DIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_music_note)
                 .setContentTitle(currentSongName)
-                .setContentText(is8DEnabled ? "🎧 8D Audio ON" : "Normal Playback")
+                .setContentText(is8DEnabled ? "🎧 8D Audio" : "Normal Playback")
                 .setSubText("SpatialFlow")
                 .setContentIntent(pendingIntent)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -224,22 +222,16 @@ public class AudioPlaybackService extends Service {
             builder.setLargeIcon(currentAlbumArt);
         }
 
-        builder.addAction(R.drawable.ic_stop, "Stop", stopPendingIntent);
         builder.addAction(
                 isPlaying ? R.drawable.ic_pause : R.drawable.ic_play,
                 isPlaying ? "Pause" : "Play",
                 playPausePendingIntent
         );
-        builder.addAction(
-                is8DEnabled ? R.drawable.ic_8d_on : R.drawable.ic_8d_off,
-                is8DEnabled ? "8D ON" : "8D OFF",
-                toggle8DPendingIntent
-        );
 
         androidx.media.app.NotificationCompat.MediaStyle mediaStyle =
                 new androidx.media.app.NotificationCompat.MediaStyle()
                         .setMediaSession(mediaSession.getSessionToken())
-                        .setShowActionsInCompactView(1, 2);
+                        .setShowActionsInCompactView(0);
 
         builder.setStyle(mediaStyle);
 
@@ -256,7 +248,18 @@ public class AudioPlaybackService extends Service {
 
     public void setSongMetadata(String songName, Bitmap albumArt) {
         this.currentSongName = songName != null ? songName : "SpatialFlow";
-        this.currentAlbumArt = albumArt;
+
+        if (albumArt != null) {
+            int size = Math.min(albumArt.getWidth(), albumArt.getHeight());
+            Bitmap squared = Bitmap.createBitmap(albumArt,
+                    (albumArt.getWidth() - size) / 2,
+                    (albumArt.getHeight() - size) / 2,
+                    size, size);
+            this.currentAlbumArt = Bitmap.createScaledBitmap(squared, 512, 512, true);
+        } else {
+            this.currentAlbumArt = null;
+        }
+
         updateMediaMetadata();
         if (mediaPlayer != null && mediaPlayer.isPlaying()) {
             updateNotification(true);
@@ -300,7 +303,11 @@ public class AudioPlaybackService extends Service {
             public void run() {
                 if (mediaPlayer != null && mediaPlayer.isPlaying()) {
                     if (viewModel != null) {
-                        viewModel.setCurrentPosition(mediaPlayer.getCurrentPosition());
+                        try {
+                            viewModel.setCurrentPosition(mediaPlayer.getCurrentPosition());
+                        } catch (IllegalStateException e) {
+                            Log.w(TAG, "Cannot get position while playing");
+                        }
                     }
                     updatePlaybackState(PlaybackStateCompat.STATE_PLAYING);
                     handler.postDelayed(this, 500);
@@ -365,12 +372,11 @@ public class AudioPlaybackService extends Service {
     public void setBassBoost(int boostDb) {
         if (bassBoostEffect != null) {
             try {
-                int strength = (int) (((boostDb + 15) / 30.0f) * 1000);
-                strength = Math.max(0, Math.min(1000, strength));
+                int strength = Math.max(0, Math.min(1000, (boostDb + 15) * 1000 / 30));
                 bassBoostEffect.setStrength((short) strength);
-                Log.d(TAG, "BassBoost: " + strength);
+                Log.d(TAG, "BassBoost: " + boostDb + "dB (strength: " + strength + ")");
             } catch (Exception e) {
-                Log.e(TAG, "Failed to set bass: " + e.getMessage());
+                Log.e(TAG, "Failed to set bass boost: " + e.getMessage());
             }
         }
     }
@@ -418,17 +424,21 @@ public class AudioPlaybackService extends Service {
 
     public void setBalance(int balanceValue) {
         if (mediaPlayer != null) {
-            float leftVol = 1.0f;
-            float rightVol = 1.0f;
+            try {
+                float leftVol = 1.0f;
+                float rightVol = 1.0f;
 
-            if (balanceValue < 0) {
-                rightVol = 1.0f + (balanceValue / 50.0f);
-            } else if (balanceValue > 0) {
-                leftVol = 1.0f - (balanceValue / 50.0f);
+                if (balanceValue < 0) {
+                    rightVol = 1.0f + (balanceValue / 50.0f);
+                } else if (balanceValue > 0) {
+                    leftVol = 1.0f - (balanceValue / 50.0f);
+                }
+
+                mediaPlayer.setVolume(leftVol, rightVol);
+                Log.d(TAG, "Balance: " + balanceValue);
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Cannot set balance: " + e.getMessage());
             }
-
-            mediaPlayer.setVolume(leftVol, rightVol);
-            Log.d(TAG, "Balance: " + balanceValue);
         }
     }
 
@@ -437,10 +447,11 @@ public class AudioPlaybackService extends Service {
             try {
                 android.media.PlaybackParams params = mediaPlayer.getPlaybackParams();
                 params.setSpeed(speed);
+                params.setPitch(speed);
                 mediaPlayer.setPlaybackParams(params);
-                Log.d(TAG, "Speed: " + speed + "x");
+                Log.d(TAG, "Speed: " + speed + "x (pitch matched)");
             } catch (Exception e) {
-                Log.e(TAG, "Failed to set speed: " + e.getMessage());
+                Log.e(TAG, "Failed to set playback speed: " + e.getMessage());
             }
         }
     }
@@ -461,15 +472,16 @@ public class AudioPlaybackService extends Service {
         Log.d(TAG, "Loading audio from URI: " + uri);
         currentSourceUri = uri;
 
-        // Reset processing state when loading new audio
         hasProcessed8D = false;
         last8DSpeed = -1f;
         lastProcessedSourcePath = null;
         currentProcessedFilePath = null;
 
+        // Stop and cleanup
         if (mediaPlayer.isPlaying()) {
             mediaPlayer.stop();
         }
+        stopProgressTracking();
 
         try {
             currentOriginalFilePath = AudioFileManager.getRealPathFromURI(this, uri);
@@ -482,24 +494,37 @@ public class AudioPlaybackService extends Service {
 
             mediaPlayer.reset();
             mediaPlayer.setDataSource(currentOriginalFilePath);
-            currentlyLoadedPath = currentOriginalFilePath; // track what is loaded
-            mediaPlayer.prepare();
+            currentlyLoadedPath = currentOriginalFilePath;
 
-            Log.d(TAG, "Audio loaded, duration: " + mediaPlayer.getDuration());
+            // 🔥 Custom listener for loading - does NOT auto-play
+            mediaPlayer.setOnPreparedListener(mp -> {
+                Log.d(TAG, "Audio loaded and ready, duration: " + mp.getDuration());
 
-            if (viewModel != null) {
-                viewModel.setDuration(mediaPlayer.getDuration());
-                viewModel.setCurrentPosition(0);
-            }
+                if (viewModel != null) {
+                    viewModel.setDuration(mp.getDuration());
+                    viewModel.setCurrentPosition(0);
+                    viewModel.postIsPlaying(false); // ✅ Use postValue for thread safety
+                }
 
-            updateMediaMetadata();
+                updateMediaMetadata();
+                initializeAudioEffects();
+                updatePlaybackState(PlaybackStateCompat.STATE_PAUSED);
+                updateNotification(false);
 
-        } catch (IOException e) {
+                // Restore default listener
+                setupMediaPlayerListeners();
+
+                Log.d(TAG, "Ready to play - awaiting user action");
+            });
+
+            mediaPlayer.prepareAsync();
+
+        } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "Error loading audio: " + e.getMessage(), e);
         }
     }
 
-    // ===== 8D FFMPEG PROCESSING WITH DUPLICATE PREVENTION =====
+    // ===== 8D + EFFECTS ENTRY POINT =====
 
     public void applyEffects(boolean enable8D, boolean enableBass, float speed8D, int bassBoost) {
         Log.d(TAG, "applyEffects called: 8D=" + enable8D + ", speed=" + speed8D);
@@ -514,39 +539,44 @@ public class AudioPlaybackService extends Service {
             return;
         }
 
-        // ===== CRITICAL: Check if we need to reprocess =====
         String currentSourcePath = AudioFileManager.getRealPathFromURI(this, currentSourceUri);
 
         if (!enable8D) {
             Log.d(TAG, "8D disabled, loading original");
             is8DEnabled = false;
             hasProcessed8D = false;
+            lastProcessedSourcePath = null;
+            currentProcessedFilePath = null;
+
             loadOriginalAudio();
+            setBassEnabled(enableBass);
+            setBassBoost(bassBoost);
+            setPlaybackSpeed(1.0f);
+            updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
             return;
         }
 
-        // Check if already processed with same parameters
+        is8DEnabled = true;
+        setBassEnabled(enableBass);
+        setBassBoost(bassBoost);
+
         boolean sameSource = currentSourcePath != null &&
                 currentSourcePath.equals(lastProcessedSourcePath);
         boolean sameSpeed = Math.abs(speed8D - last8DSpeed) < 0.01f;
 
-        if (hasProcessed8D && sameSource && sameSpeed && currentProcessedFilePath != null) {
+        if (hasProcessed8D && sameSource && currentProcessedFilePath != null && sameSpeed) {
             Log.d(TAG, "8D already processed with same parameters, skipping reprocessing");
-
-            // Just ensure we're playing the processed file if not already
             if (!isCurrentlyPlayingProcessedFile()) {
-                loadProcessedAudio();
+                loadProcessedAudio(speed8D);
+            } else {
+                setPlaybackSpeed(speed8D);
             }
-
-            is8DEnabled = true;
             updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
             return;
         }
 
         Log.d(TAG, "Starting NEW 8D processing with FFmpeg");
-
         isProcessing = true;
-        this.is8DEnabled = enable8D;
 
         if (viewModel != null) {
             handler.post(() -> {
@@ -555,59 +585,71 @@ public class AudioPlaybackService extends Service {
             });
         }
 
-        boolean wasPlaying = mediaPlayer.isPlaying();
-        if (wasPlaying) {
-            savedPosition = mediaPlayer.getCurrentPosition();
-            pause();
-        }
+        final boolean wasPlaying = mediaPlayer.isPlaying();
+        final int savedPos = wasPlaying ? mediaPlayer.getCurrentPosition() : 0;
 
-        String inputPath = currentSourcePath;
-        if (inputPath == null) {
+        if (currentSourcePath == null) {
             Log.e(TAG, "Input path is null");
             finishProcessing(false);
             return;
         }
 
-        File outputFile = new File(getCacheDir(), "8d_audio_" + System.currentTimeMillis() + ".m4a");
+        File outputFile = new File(getCacheDir(),
+                "8d_audio_" + System.currentTimeMillis() + ".m4a");
         String outputPath = outputFile.getAbsolutePath();
 
-        String command = FFmpegCommandBuilder.build8D(inputPath, outputPath, speed8D);
-
+        String command = FFmpegCommandBuilder.build8D(currentSourcePath, outputPath, 1.0f);
         Log.d(TAG, "FFmpeg command: " + command);
-        Log.d(TAG, "Input: " + inputPath);
-        Log.d(TAG, "Output: " + outputPath);
 
         final int songDuration = mediaPlayer.getDuration();
+        final float userSpeed = speed8D;
 
-        FFmpegKit.executeAsync(command,
+        FFmpegKit.executeAsync(
+                command,
                 session -> {
                     ReturnCode returnCode = session.getReturnCode();
-                    Log.d(TAG, "FFmpeg session completed with code: " + returnCode);
+                    Log.d(TAG, "FFmpeg completed with code: " + returnCode);
 
                     if (ReturnCode.isSuccess(returnCode)) {
-                        Log.d(TAG, "FFmpeg SUCCESS - 8D processing complete");
-
-                        // Save processing state
                         currentProcessedFilePath = outputPath;
                         hasProcessed8D = true;
-                        last8DSpeed = speed8D;
-                        lastProcessedSourcePath = inputPath;
+                        last8DSpeed = userSpeed;
+                        lastProcessedSourcePath = currentSourcePath;
 
                         handler.post(() -> {
                             try {
+                                boolean stillPlaying = mediaPlayer.isPlaying();
+                                int currentPos = stillPlaying ? mediaPlayer.getCurrentPosition() : savedPos;
+
+                                if (stillPlaying) {
+                                    mediaPlayer.pause();
+                                }
+
                                 mediaPlayer.reset();
                                 mediaPlayer.setDataSource(outputPath);
-                                currentlyLoadedPath = outputPath; // track processed file loaded
-                                mediaPlayer.prepare();
+                                currentlyLoadedPath = outputPath;
 
-                                Log.d(TAG, "8D file loaded successfully");
+                                mediaPlayer.setOnPreparedListener(mp -> {
+                                    Log.d(TAG, "8D audio prepared, duration: " + mp.getDuration());
 
-                                finishProcessing(true);
+                                    initializeAudioEffects();
+                                    setBassEnabled(enableBass);
+                                    setBassBoost(bassBoost);
+                                    setPlaybackSpeed(userSpeed);
 
-                                if (wasPlaying) {
-                                    mediaPlayer.seekTo(savedPosition);
-                                    play();
-                                }
+                                    finishProcessing(true);
+
+                                    // 🔥 ONLY resume if was playing
+                                    if (wasPlaying || stillPlaying) {
+                                        mp.seekTo(currentPos);
+                                        play();
+                                    }
+
+                                    setupMediaPlayerListeners();
+                                });
+
+                                mediaPlayer.prepareAsync();
+
                             } catch (IOException e) {
                                 Log.e(TAG, "Error loading 8D audio: " + e.getMessage(), e);
                                 hasProcessed8D = false;
@@ -616,22 +658,19 @@ public class AudioPlaybackService extends Service {
                         });
                     } else {
                         Log.e(TAG, "FFmpeg FAILED: " + returnCode);
-                        String output = session.getOutput();
-                        String failLog = session.getFailStackTrace();
-                        Log.e(TAG, "Output: " + output);
-                        Log.e(TAG, "Error: " + failLog);
                         hasProcessed8D = false;
                         handler.post(() -> finishProcessing(false));
                     }
                 },
-                log -> Log.d(TAG, "FFmpeg log: " + log.getMessage()),
+                log -> Log.d(TAG, "FFmpeg: " + log.getMessage()),
                 statistics -> {
                     if (statistics != null) {
                         double timeInMillis = statistics.getTime();
                         if (timeInMillis > 0 && songDuration > 0) {
                             double progress = Math.min((timeInMillis * 100) / songDuration, 99);
                             if (viewModel != null) {
-                                handler.post(() -> viewModel.setProcessingProgress((int) progress));
+                                handler.post(() ->
+                                        viewModel.setProcessingProgress((int) progress));
                             }
                         }
                     }
@@ -643,16 +682,11 @@ public class AudioPlaybackService extends Service {
         if (mediaPlayer == null || currentProcessedFilePath == null) {
             return false;
         }
-
-        try {
-            return currentlyLoadedPath != null && currentlyLoadedPath.equals(currentProcessedFilePath);
-        } catch (Exception e) {
-            Log.e(TAG, "Error checking processed file: " + e.getMessage());
-            return false;
-        }
+        return currentlyLoadedPath != null &&
+                currentlyLoadedPath.equals(currentProcessedFilePath);
     }
 
-    private void loadProcessedAudio() {
+    private void loadProcessedAudio(float speed) {
         if (currentProcessedFilePath == null || !new File(currentProcessedFilePath).exists()) {
             Log.e(TAG, "Processed file not found");
             return;
@@ -662,22 +696,29 @@ public class AudioPlaybackService extends Service {
         int position = mediaPlayer.getCurrentPosition();
 
         if (wasPlaying) {
-            pause();
+            mediaPlayer.pause();
         }
 
         try {
             mediaPlayer.reset();
             mediaPlayer.setDataSource(currentProcessedFilePath);
-            currentlyLoadedPath = currentProcessedFilePath; // track what is loaded
-            mediaPlayer.prepare();
+            currentlyLoadedPath = currentProcessedFilePath;
 
-            if (wasPlaying) {
-                mediaPlayer.seekTo(position);
-                play();
-            }
+            mediaPlayer.setOnPreparedListener(mp -> {
+                initializeAudioEffects();
+                setPlaybackSpeed(speed);
 
-            Log.d(TAG, "Processed audio re-loaded");
-        } catch (IOException e) {
+                // 🔥 ONLY resume if was playing
+                if (wasPlaying) {
+                    mp.seekTo(position);
+                    play();
+                }
+                setupMediaPlayerListeners();
+            });
+            mediaPlayer.prepareAsync();
+
+            Log.d(TAG, "Processed audio loading...");
+        } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "Error loading processed audio: " + e.getMessage(), e);
         }
     }
@@ -689,7 +730,7 @@ public class AudioPlaybackService extends Service {
         int position = mediaPlayer.getCurrentPosition();
 
         if (wasPlaying) {
-            pause();
+            mediaPlayer.pause();
         }
 
         try {
@@ -697,17 +738,23 @@ public class AudioPlaybackService extends Service {
             if (originalPath != null) {
                 mediaPlayer.reset();
                 mediaPlayer.setDataSource(originalPath);
-                currentlyLoadedPath = originalPath; // track what is loaded
-                mediaPlayer.prepare();
+                currentlyLoadedPath = originalPath;
 
-                if (wasPlaying) {
-                    mediaPlayer.seekTo(position);
-                    play();
-                }
+                mediaPlayer.setOnPreparedListener(mp -> {
+                    initializeAudioEffects();
 
-                Log.d(TAG, "Original audio loaded");
+                    // 🔥 ONLY resume if was playing
+                    if (wasPlaying) {
+                        mp.seekTo(position);
+                        play();
+                    }
+                    setupMediaPlayerListeners();
+                });
+                mediaPlayer.prepareAsync();
+
+                Log.d(TAG, "Original audio loading...");
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "Error loading original: " + e.getMessage(), e);
         }
     }
@@ -716,17 +763,13 @@ public class AudioPlaybackService extends Service {
         isProcessing = false;
         if (viewModel != null) {
             viewModel.postIsProcessing(false);
-            if (success) {
-                handler.post(() -> viewModel.setProcessingProgress(100));
-            } else {
-                handler.post(() -> viewModel.setProcessingProgress(0));
-            }
+            handler.post(() -> viewModel.setProcessingProgress(success ? 100 : 0));
         }
         updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
         Log.d(TAG, "Processing finished: " + (success ? "SUCCESS" : "FAILED"));
     }
 
-    // ===== GETTERS FOR STATE (for fragments to sync UI) =====
+    // ===== GETTERS =====
 
     public boolean is8DEnabled() {
         return is8DEnabled;
@@ -736,6 +779,10 @@ public class AudioPlaybackService extends Service {
         return isProcessing;
     }
 
+    public boolean isPlaying() {
+        return mediaPlayer != null && mediaPlayer.isPlaying();
+    }
+
     // ===== PLAYBACK CONTROLS =====
 
     public void play() {
@@ -743,11 +790,11 @@ public class AudioPlaybackService extends Service {
             try {
                 mediaPlayer.start();
                 if (viewModel != null) {
-                    viewModel.setIsPlaying(true);
+                    viewModel.postIsPlaying(true);
                 }
                 handler.post(progressRunnable);
                 updatePlaybackState(PlaybackStateCompat.STATE_PLAYING);
-                startForeground(NOTIFICATION_ID, createNotification(true));
+                updateNotification(true);
                 Log.d(TAG, "Playback started");
             } catch (IllegalStateException e) {
                 Log.e(TAG, "Cannot start: " + e.getMessage(), e);
@@ -757,34 +804,51 @@ public class AudioPlaybackService extends Service {
 
     public void pause() {
         if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-            mediaPlayer.pause();
-            if (viewModel != null) {
-                viewModel.setIsPlaying(false);
+            try {
+                mediaPlayer.pause();
+                if (viewModel != null) {
+                    viewModel.postIsPlaying(false);
+                }
+                stopProgressTracking();
+                updatePlaybackState(PlaybackStateCompat.STATE_PAUSED);
+                updateNotification(false);
+                Log.d(TAG, "Playback paused");
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Cannot pause: " + e.getMessage(), e);
             }
-            stopProgressTracking();
-            updatePlaybackState(PlaybackStateCompat.STATE_PAUSED);
-
-            NotificationManager notificationManager = getSystemService(NotificationManager.class);
-            if (notificationManager != null) {
-                notificationManager.notify(NOTIFICATION_ID, createNotification(false));
-            }
-
-            Log.d(TAG, "Playback paused");
         }
     }
 
     public void stop() {
         if (mediaPlayer != null) {
             try {
-                mediaPlayer.stop();
-                mediaPlayer.prepare();
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.stop();
+                }
+
                 if (viewModel != null) {
-                    viewModel.setIsPlaying(false);
+                    viewModel.postIsPlaying(false);
                     viewModel.setCurrentPosition(0);
                 }
+
                 stopProgressTracking();
                 updatePlaybackState(PlaybackStateCompat.STATE_STOPPED);
                 stopForeground(true);
+
+                // 🔥 Reset to prepared state WITHOUT auto-playing
+                mediaPlayer.reset();
+                if (currentOriginalFilePath != null) {
+                    mediaPlayer.setDataSource(currentOriginalFilePath);
+
+                    mediaPlayer.setOnPreparedListener(mp -> {
+                        Log.d(TAG, "Media reset and prepared after stop - ready for user action");
+                        setupMediaPlayerListeners();
+                        updatePlaybackState(PlaybackStateCompat.STATE_STOPPED);
+                        // 🔥 DO NOT call play() here
+                    });
+                    mediaPlayer.prepareAsync();
+                }
+
                 Log.d(TAG, "Playback stopped");
             } catch (IOException | IllegalStateException e) {
                 Log.e(TAG, "Error stopping: " + e.getMessage(), e);
@@ -806,34 +870,28 @@ public class AudioPlaybackService extends Service {
     }
 
     private void stopProgressTracking() {
-        handler.removeCallbacks(progressRunnable);
+        if (handler != null && progressRunnable != null) {
+            handler.removeCallbacks(progressRunnable);
+        }
     }
+
+    // ===== FOREGROUND SERVICE ENTRY POINT =====
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        Notification notification = createNotification(
+                mediaPlayer != null && mediaPlayer.isPlaying()
+        );
+        startForeground(NOTIFICATION_ID, notification);
+
         MediaButtonReceiver.handleIntent(mediaSession, intent);
 
         if (intent != null && intent.getAction() != null) {
-            switch (intent.getAction()) {
-                case ACTION_PLAY:
-                    play();
-                    break;
-                case ACTION_PAUSE:
-                    pause();
-                    break;
-                case ACTION_STOP:
-                    stop();
-                    break;
-                case ACTION_TOGGLE_8D:
-                    Log.d(TAG, "Toggle 8D pressed");
-                    if (viewModel != null) {
-                        boolean current = viewModel.getIs8DEnabled().getValue() != null &&
-                                viewModel.getIs8DEnabled().getValue();
-                        Log.d(TAG, "8D state: " + current + " -> " + !current);
-                        viewModel.set8DEnabled(!current);
-                        viewModel.triggerReprocessing();
-                    }
-                    break;
+            String action = intent.getAction();
+            if (ACTION_PLAY.equals(action)) {
+                play();
+            } else if (ACTION_PAUSE.equals(action)) {
+                pause();
             }
         }
         return START_STICKY;
@@ -863,4 +921,3 @@ public class AudioPlaybackService extends Service {
         stopProgressTracking();
     }
 }
-

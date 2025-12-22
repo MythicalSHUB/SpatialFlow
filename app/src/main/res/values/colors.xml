@@ -46,5 +46,7 @@
     <color name="md_theme_dark_surfaceVariant">#3F484A</color>
     <color name="md_theme_dark_onSurface">#E1E3E3</color>
     <color name="md_theme_dark_onSurfaceVariant">#CCE8EC</color>
+    <color name="splash_background">#FFFFFF</color>
+    <color name="splash_icon_tint">#000000</color>
 
 </resources>

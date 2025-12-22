@@ -55,9 +55,15 @@
     <string name="whats_new_title">What\'s New in Version %1$s</string>
     <string name="whats_new_positive_button">Got It</string>
     <string name="whats_new_content_template"><![CDATA[
-<b>Version %1$s Highlights:</b><ul>
-<li>Added Song List in Player</li>
-</ul>]]></string>
+        <b>Version %1$s Highlights:</b><ul>
+        <li>Added Chips & Search in the Song List</li>
+        <li>Faster 8D Audio Processing</li>
+        <li>Optimized Bass Processing</li>
+        <li>Changes in Playback Speed(Pitch also matched) </li>
+        <li>Added Slightly Animations in Activity Changes and Bottom Navigation</li>
+        <li>Added Picture-in-Picture Mode(Beta)</li>
+        </ul>]]></string>
+    <string name="hello_blank_fragment">Hello blank fragment</string>
 
 
 </resources>

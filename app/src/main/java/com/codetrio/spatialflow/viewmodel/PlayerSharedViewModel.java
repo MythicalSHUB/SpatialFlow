@@ -83,6 +83,11 @@ public class PlayerSharedViewModel extends ViewModel {
         isPlaying.setValue(playing);
     }
 
+    // 🔥 NEW: Thread-safe setter
+    public void postIsPlaying(boolean playing) {
+        isPlaying.postValue(playing);
+    }
+
     public void playAudio() {
         if (audioService != null) audioService.play();
     }
@@ -154,6 +159,10 @@ public class PlayerSharedViewModel extends ViewModel {
 
     public LiveData<Float> get8DSpeed() {
         return speed8D;
+    }
+
+    public void set8DSpeed(float speed) {
+        speed8D.setValue(speed);
     }
 
     // ===== BASS BOOST =====
@@ -248,7 +257,7 @@ public class PlayerSharedViewModel extends ViewModel {
         }
     }
 
-    // Generic setter for any band (still supported)
+    // Generic setter for any band
     public void setEqBandGain(int bandIndex, int gainDb) {
         switch (bandIndex) {
             case 0:
@@ -326,7 +335,7 @@ public class PlayerSharedViewModel extends ViewModel {
             boolean enable8D = is8DEnabled.getValue() != null && is8DEnabled.getValue();
             boolean enableBass = isBassEnabled.getValue() != null && isBassEnabled.getValue();
 
-            // Use FIXED 8D speed (0.2Hz) and ADJUSTABLE bass boost
+            // Use current 8D speed and bass boost values
             float speed = speed8D.getValue() != null ? speed8D.getValue() : 0.2f;
             int boost = bassBoost.getValue() != null ? bassBoost.getValue() : 0;
 
@@ -340,5 +349,79 @@ public class PlayerSharedViewModel extends ViewModel {
         if (audioService != null) {
             audioService.setSongMetadata(songName, albumArt);
         }
+    }
+
+    // ===== UTILITY METHODS =====
+
+    // 🔥 NEW: Check if service is bound
+    public boolean isServiceBound() {
+        return audioService != null;
+    }
+
+    // 🔥 NEW: Get current playback state from service
+    public boolean isCurrentlyPlaying() {
+        return audioService != null && audioService.isPlaying();
+    }
+
+    // 🔥 NEW: Check if 8D processing is active
+    public boolean isCurrentlyProcessing() {
+        return audioService != null && audioService.isProcessing();
+    }
+
+    // 🔥 NEW: Reset all effects to default
+    public void resetAllEffects() {
+        set8DEnabled(false);
+        setBassEnabled(false);
+        setBassBoost(0);
+        setEqualizerEnabled(false);
+        setEqBand1(0);
+        setEqBand2(0);
+        setEqBand3(0);
+        setEqBand4(0);
+        setEqBand5(0);
+        setLoudnessEnabled(false);
+        setLoudnessGain(0);
+        setBalance(0);
+        setPlaybackSpeed(1.0f);
+    }
+
+    // 🔥 NEW: Apply all current effects to service (for reconnection)
+    public void applyAllEffects() {
+        if (audioService == null) return;
+
+        // Apply all current state values to service
+        audioService.set8DEnabled(is8DEnabled.getValue() != null && is8DEnabled.getValue());
+        audioService.setBassEnabled(isBassEnabled.getValue() != null && isBassEnabled.getValue());
+
+        if (isBassEnabled.getValue() != null && isBassEnabled.getValue()) {
+            audioService.setBassBoost(bassBoost.getValue() != null ? bassBoost.getValue() : 0);
+        }
+
+        audioService.setEqualizerEnabled(isEqualizerEnabled.getValue() != null && isEqualizerEnabled.getValue());
+
+        if (isEqualizerEnabled.getValue() != null && isEqualizerEnabled.getValue()) {
+            audioService.setEqBandGain(0, eqBand1.getValue() != null ? eqBand1.getValue() : 0);
+            audioService.setEqBandGain(1, eqBand2.getValue() != null ? eqBand2.getValue() : 0);
+            audioService.setEqBandGain(2, eqBand3.getValue() != null ? eqBand3.getValue() : 0);
+            audioService.setEqBandGain(3, eqBand4.getValue() != null ? eqBand4.getValue() : 0);
+            audioService.setEqBandGain(4, eqBand5.getValue() != null ? eqBand5.getValue() : 0);
+        }
+
+        audioService.setLoudnessEnabled(isLoudnessEnabled.getValue() != null && isLoudnessEnabled.getValue());
+
+        if (isLoudnessEnabled.getValue() != null && isLoudnessEnabled.getValue()) {
+            audioService.setLoudnessGain(loudnessGain.getValue() != null ? loudnessGain.getValue() : 0);
+        }
+
+        audioService.setBalance(balance.getValue() != null ? balance.getValue() : 0);
+        audioService.setPlaybackSpeed(playbackSpeed.getValue() != null ? playbackSpeed.getValue() : 1.0f);
+    }
+
+    // ===== LIFECYCLE =====
+
+    @Override
+    protected void onCleared() {
+        super.onCleared();
+        audioService = null;
     }
 }
