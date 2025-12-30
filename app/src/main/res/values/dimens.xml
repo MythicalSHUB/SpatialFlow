@@ -2,66 +2,72 @@
 <resources>
 
     <!-- Responsive percentages (ConstraintLayout) -->
-    <!-- Wider and taller art so it fills the card area more -->
-    <dimen name="album_art_width_percent">0.90</dimen>
-    <dimen name="album_art_height_percent">0.60</dimen>
+    <!-- Reduced album art size to prevent excessive scrolling -->
+    <dimen name="album_art_width_percent">0.85</dimen>
+    <dimen name="album_art_height_percent">0.48</dimen>
 
-    <!-- Controls area not too wide, keeps center alignment nice -->
-    <dimen name="controls_max_width_percent">0.85</dimen>
+    <!-- Controls area - optimized for scrollable content -->
+    <dimen name="controls_max_width_percent">0.90</dimen>
 
     <!-- Fixed Material Design base values -->
-    <dimen name="album_art_min_size">240dp</dimen>
-    <dimen name="album_art_max_size">420dp</dimen>
+    <!-- Reduced album art dimensions for better scroll performance -->
+    <dimen name="album_art_min_size">200dp</dimen>
+    <dimen name="album_art_max_size">340dp</dimen>
     <dimen name="album_art_corner_radius">24dp</dimen>
-    <dimen name="album_art_elevation">6dp</dimen>
+    <dimen name="album_art_elevation">4dp</dimen>
 
-    <!-- Horizontal screen margin -->
-    <dimen name="margin_screen_horizontal">20dp</dimen>
-    <dimen name="margin_bottom_spacing">24dp</dimen>
+    <!-- Horizontal screen margin - reduced for more content space -->
+    <dimen name="margin_screen_horizontal">16dp</dimen>
+    <dimen name="margin_bottom_spacing">16dp</dimen>
 
+    <!-- Generic margins - optimized for scrollable layout -->
+    <dimen name="margin_xsmall">2dp</dimen>
+    <dimen name="margin_small">6dp</dimen>
+    <dimen name="margin_medium">12dp</dimen>
+    <dimen name="margin_large">16dp</dimen>
+    <dimen name="margin_xlarge">24dp</dimen>
 
-    <!-- Generic margins -->
-    <dimen name="margin_xsmall">4dp</dimen>
-    <dimen name="margin_small">8dp</dimen>
-    <dimen name="margin_medium">16dp</dimen>
-    <dimen name="margin_large">24dp</dimen>
-    <dimen name="margin_xlarge">32dp</dimen>
+    <!-- Vertical relationships - REDUCED for better scroll fit -->
+    <dimen name="margin_between_album_title">12dp</dimen>
+    <dimen name="margin_between_title_slider">8dp</dimen>
+    <dimen name="margin_between_slider_controls">20dp</dimen>
+    <dimen name="margin_between_controls_actions">16dp</dimen>
+    <dimen name="margin_between_control_buttons">12dp</dimen>
+    <dimen name="margin_between_action_buttons">8dp</dimen>
+    <dimen name="margin_time_labels">4dp</dimen>
 
-    <!-- Vertical relationships -->
-    <dimen name="margin_between_album_title">20dp</dimen>
-    <dimen name="margin_between_title_slider">16dp</dimen>
-    <dimen name="margin_between_slider_controls">28dp</dimen>
-    <dimen name="margin_between_controls_actions">28dp</dimen>
-    <dimen name="margin_between_control_buttons">20dp</dimen>
-    <dimen name="margin_between_action_buttons">12dp</dimen>
-    <dimen name="margin_time_labels">6dp</dimen>
-
-    <!-- Top and bottom padding to visually center content -->
-    <dimen name="padding_top_content">32dp</dimen>
-    <dimen name="padding_bottom_content">24dp</dimen>
+    <!-- Top and bottom padding - REDUCED to minimize scroll distance -->
+    <dimen name="padding_top_content">16dp</dimen>
+    <dimen name="padding_bottom_content">16dp</dimen>
 
     <!-- Text sizes (use autoSizeTextType="uniform" on title) -->
-    <dimen name="song_title_min_text_size">18sp</dimen>
-    <dimen name="song_title_max_text_size">26sp</dimen>
-    <dimen name="time_label_text_size">12sp</dimen>
+    <dimen name="song_title_min_text_size">16sp</dimen>
+    <dimen name="song_title_max_text_size">22sp</dimen>
+    <dimen name="time_label_text_size">11sp</dimen>
 
-    <!-- Slider look -->
-    <dimen name="slider_track_height">6dp</dimen>
-    <dimen name="slider_thumb_radius">7dp</dimen>
+    <!-- Slider look - slightly thinner for compact layout -->
+    <dimen name="slider_track_height">8dp</dimen>
+    <dimen name="slider_thumb_radius">6dp</dimen>
+    <dimen name="chip_icon_size">16dp</dimen>
+    <dimen name="chip_text_size">13sp</dimen>
 
-    <!-- Buttons / FABs -->
-    <!-- Main play button should feel dominant -->
-    <dimen name="button_height">48dp</dimen>
-    <dimen name="button_text_size">14sp</dimen>
-    <dimen name="button_icon_size">20dp</dimen>
+    <!-- Buttons / FABs - REDUCED for compact scrollable layout -->
+    <dimen name="button_height">44dp</dimen>
+    <dimen name="button_text_size">13sp</dimen>
+    <dimen name="button_icon_size">18dp</dimen>
 
-    <dimen name="fab_play_size">72dp</dimen>
-    <dimen name="fab_play_icon_size">34dp</dimen>
+    <!-- Main play button - slightly smaller to reduce scroll -->
+    <dimen name="fab_play_size">64dp</dimen>
+    <dimen name="fab_play_icon_size">30dp</dimen>
 
-    <dimen name="fab_stop_size">60dp</dimen>
-    <dimen name="fab_stop_icon_size">26dp</dimen>
+    <dimen name="fab_stop_size">52dp</dimen>
+    <dimen name="fab_stop_icon_size">22dp</dimen>
+
+    <!-- Volume FAB sizes (mini FABs) -->
+    <dimen name="fab_volume_size">40dp</dimen>
+    <dimen name="fab_volume_icon_size">20dp</dimen>
 
     <!-- Max widths (for large tablets) -->
-    <dimen name="controls_max_width">620dp</dimen>
+    <dimen name="controls_max_width">580dp</dimen>
 
 </resources>

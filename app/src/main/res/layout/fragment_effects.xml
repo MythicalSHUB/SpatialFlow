@@ -53,6 +53,7 @@
 
                 <com.google.android.material.progressindicator.LinearProgressIndicator
                     android:id="@+id/progressBar"
+                    style="@style/Widget.Material3Expressive.LinearProgressIndicator.Wavy"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
@@ -61,7 +62,11 @@
                     app:trackColor="?attr/colorSurfaceVariant"
                     app:trackThickness="8dp"
                     app:trackCornerRadius="4dp"
+                    app:wavelength="80dp"
+                    app:waveAmplitude="4dp"
+                    app:waveSpeed="25dp"
                     app:showAnimationBehavior="inward" />
+
 
             </LinearLayout>
 
@@ -203,6 +208,7 @@
                         android:stepSize="1"
                         android:enabled="false"
                         app:labelBehavior="gone"
+                        app:trackCornerSize="8dp"
                         app:thumbColor="?attr/colorPrimary"
                         app:trackColorActive="?attr/colorPrimary"
                         app:trackColorInactive="?attr/colorOutlineVariant"
@@ -275,7 +281,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-
+                            app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -319,7 +325,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-
+                            app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -363,7 +369,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-
+                            app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -407,7 +413,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-
+                            app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -451,7 +457,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
-
+                            app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -563,6 +569,7 @@
                         android:stepSize="1"
                         android:enabled="false"
                         app:labelBehavior="gone"
+                        app:trackCornerSize="4dp"
                         app:thumbColor="?attr/colorPrimary"
                         app:trackColorActive="?attr/colorPrimary"
                         app:trackColorInactive="?attr/colorOutlineVariant"
@@ -655,6 +662,7 @@
                             android:valueFrom="-50"
                             android:valueTo="50"
                             android:value="0"
+                            app:trackCornerSize="6dp"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
                             app:haloColor="?attr/colorPrimaryContainer"
@@ -797,7 +805,7 @@
                         app:trackColorActive="?attr/colorPrimary"
                         app:trackColorInactive="?attr/colorOutlineVariant"
                         app:haloColor="?attr/colorPrimaryContainer"
-                        app:trackHeight="12dp"
+                        app:trackHeight="20dp"
                         app:thumbRadius="10dp" />
 
                     <LinearLayout

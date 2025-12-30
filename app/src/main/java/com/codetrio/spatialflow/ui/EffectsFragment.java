@@ -7,6 +7,7 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -168,8 +169,14 @@ public class EffectsFragment extends Fragment {
 
                 if (isProcessing) {
                     disableControls();
+                    // Start wavy animation for processing
+                    binding.progressBar.setWaveSpeed(30);
+                    binding.progressBar.setWaveAmplitude(4);
                 } else {
                     enableControls();
+                    // Stop wavy animation
+                    binding.progressBar.setWaveSpeed(0);
+                    binding.progressBar.setWaveAmplitude(0);
                     refreshAllEffects();
                 }
 
@@ -185,10 +192,18 @@ public class EffectsFragment extends Fragment {
                 binding.tvProcessingStatus.setText(String.format(Locale.getDefault(),
                         "Processing 8D Audio: %d%%", progress));
 
+                // Increase wave speed as progress increases
+                if (progress < 100) {
+                    int waveSpeed = 20 + (progress / 5); // 20-40dp speed
+                    binding.progressBar.setWaveSpeed(waveSpeed);
+                }
+
                 if (progress >= 100) {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         if (binding != null) {
                             binding.cardProcessing.setVisibility(View.GONE);
+                            binding.progressBar.setWaveSpeed(0);
+                            binding.progressBar.setWaveAmplitude(0);
                             refreshAllEffects();
                         }
                     }, 1500);

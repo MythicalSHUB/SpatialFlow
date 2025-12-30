@@ -2,6 +2,8 @@ package com.codetrio.spatialflow.viewmodel;
 
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.util.Log;
+
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
@@ -416,6 +418,19 @@ public class PlayerSharedViewModel extends ViewModel {
         audioService.setBalance(balance.getValue() != null ? balance.getValue() : 0);
         audioService.setPlaybackSpeed(playbackSpeed.getValue() != null ? playbackSpeed.getValue() : 1.0f);
     }
+    // Add to your PlayerSharedViewModel class
+
+    private MutableLiveData<Boolean> isHapticsEnabled = new MutableLiveData<>(false);
+
+    public LiveData<Boolean> getIsHapticsEnabled() {
+        return isHapticsEnabled;
+    }
+
+    public void setHapticsEnabled(boolean enabled) {
+        isHapticsEnabled.setValue(enabled);
+        Log.d("ViewModel", "Haptics state saved: " + enabled);
+    }
+
 
     // ===== LIFECYCLE =====
 

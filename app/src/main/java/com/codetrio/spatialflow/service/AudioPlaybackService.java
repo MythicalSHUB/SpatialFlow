@@ -143,6 +143,16 @@ public class AudioPlaybackService extends Service {
             public void onSeekTo(long pos) {
                 seekTo((int) pos);
             }
+
+            @Override
+            public void onRewind() {
+                rewind30();
+            }
+
+            @Override
+            public void onFastForward() {
+                forward30();
+            }
         });
 
         updatePlaybackState(PlaybackStateCompat.STATE_NONE);
@@ -162,7 +172,9 @@ public class AudioPlaybackService extends Service {
                         PlaybackStateCompat.ACTION_PLAY |
                                 PlaybackStateCompat.ACTION_PAUSE |
                                 PlaybackStateCompat.ACTION_STOP |
-                                PlaybackStateCompat.ACTION_SEEK_TO
+                                PlaybackStateCompat.ACTION_SEEK_TO |
+                                PlaybackStateCompat.ACTION_REWIND |
+                                PlaybackStateCompat.ACTION_FAST_FORWARD
                 )
                 .setState(state, position, 1.0f);
 
@@ -456,6 +468,57 @@ public class AudioPlaybackService extends Service {
         }
     }
 
+    // ===== ✅ NEW: 30-SECOND SKIP CONTROLS =====
+
+    /**
+     * Rewind 30 seconds backward
+     */
+    public void rewind30() {
+        if (mediaPlayer != null) {
+            try {
+                int currentPos = mediaPlayer.getCurrentPosition();
+                int newPos = Math.max(0, currentPos - 30000); // 30 seconds = 30000ms
+                mediaPlayer.seekTo(newPos);
+
+                if (viewModel != null) {
+                    viewModel.setCurrentPosition(newPos);
+                }
+
+                updatePlaybackState(mediaPlayer.isPlaying() ?
+                        PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
+
+                Log.d(TAG, "Rewound 30 seconds: " + currentPos + " → " + newPos);
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Cannot rewind: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Forward 30 seconds ahead
+     */
+    public void forward30() {
+        if (mediaPlayer != null) {
+            try {
+                int currentPos = mediaPlayer.getCurrentPosition();
+                int duration = mediaPlayer.getDuration();
+                int newPos = Math.min(duration, currentPos + 30000); // 30 seconds forward
+                mediaPlayer.seekTo(newPos);
+
+                if (viewModel != null) {
+                    viewModel.setCurrentPosition(newPos);
+                }
+
+                updatePlaybackState(mediaPlayer.isPlaying() ?
+                        PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
+
+                Log.d(TAG, "Forwarded 30 seconds: " + currentPos + " → " + newPos);
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Cannot forward: " + e.getMessage());
+            }
+        }
+    }
+
     // ===== AUDIO LOADING =====
 
     public void setViewModel(PlayerSharedViewModel vm) {
@@ -477,7 +540,6 @@ public class AudioPlaybackService extends Service {
         lastProcessedSourcePath = null;
         currentProcessedFilePath = null;
 
-        // Stop and cleanup
         if (mediaPlayer.isPlaying()) {
             mediaPlayer.stop();
         }
@@ -496,14 +558,13 @@ public class AudioPlaybackService extends Service {
             mediaPlayer.setDataSource(currentOriginalFilePath);
             currentlyLoadedPath = currentOriginalFilePath;
 
-            // 🔥 Custom listener for loading - does NOT auto-play
             mediaPlayer.setOnPreparedListener(mp -> {
                 Log.d(TAG, "Audio loaded and ready, duration: " + mp.getDuration());
 
                 if (viewModel != null) {
                     viewModel.setDuration(mp.getDuration());
                     viewModel.setCurrentPosition(0);
-                    viewModel.postIsPlaying(false); // ✅ Use postValue for thread safety
+                    viewModel.postIsPlaying(false);
                 }
 
                 updateMediaMetadata();
@@ -511,7 +572,6 @@ public class AudioPlaybackService extends Service {
                 updatePlaybackState(PlaybackStateCompat.STATE_PAUSED);
                 updateNotification(false);
 
-                // Restore default listener
                 setupMediaPlayerListeners();
 
                 Log.d(TAG, "Ready to play - awaiting user action");
@@ -639,7 +699,6 @@ public class AudioPlaybackService extends Service {
 
                                     finishProcessing(true);
 
-                                    // 🔥 ONLY resume if was playing
                                     if (wasPlaying || stillPlaying) {
                                         mp.seekTo(currentPos);
                                         play();
@@ -708,7 +767,6 @@ public class AudioPlaybackService extends Service {
                 initializeAudioEffects();
                 setPlaybackSpeed(speed);
 
-                // 🔥 ONLY resume if was playing
                 if (wasPlaying) {
                     mp.seekTo(position);
                     play();
@@ -743,7 +801,6 @@ public class AudioPlaybackService extends Service {
                 mediaPlayer.setOnPreparedListener(mp -> {
                     initializeAudioEffects();
 
-                    // 🔥 ONLY resume if was playing
                     if (wasPlaying) {
                         mp.seekTo(position);
                         play();
@@ -781,6 +838,30 @@ public class AudioPlaybackService extends Service {
 
     public boolean isPlaying() {
         return mediaPlayer != null && mediaPlayer.isPlaying();
+    }
+
+    public int getCurrentPosition() {
+        if (mediaPlayer != null) {
+            try {
+                return mediaPlayer.getCurrentPosition();
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Cannot get position: " + e.getMessage());
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    public int getDuration() {
+        if (mediaPlayer != null) {
+            try {
+                return mediaPlayer.getDuration();
+            } catch (IllegalStateException e) {
+                Log.e(TAG, "Cannot get duration: " + e.getMessage());
+                return 0;
+            }
+        }
+        return 0;
     }
 
     // ===== PLAYBACK CONTROLS =====
@@ -835,7 +916,6 @@ public class AudioPlaybackService extends Service {
                 updatePlaybackState(PlaybackStateCompat.STATE_STOPPED);
                 stopForeground(true);
 
-                // 🔥 Reset to prepared state WITHOUT auto-playing
                 mediaPlayer.reset();
                 if (currentOriginalFilePath != null) {
                     mediaPlayer.setDataSource(currentOriginalFilePath);
@@ -844,7 +924,6 @@ public class AudioPlaybackService extends Service {
                         Log.d(TAG, "Media reset and prepared after stop - ready for user action");
                         setupMediaPlayerListeners();
                         updatePlaybackState(PlaybackStateCompat.STATE_STOPPED);
-                        // 🔥 DO NOT call play() here
                     });
                     mediaPlayer.prepareAsync();
                 }
@@ -860,6 +939,9 @@ public class AudioPlaybackService extends Service {
         if (mediaPlayer != null) {
             try {
                 mediaPlayer.seekTo(position);
+                if (viewModel != null) {
+                    viewModel.setCurrentPosition(position);
+                }
                 updatePlaybackState(mediaPlayer.isPlaying() ?
                         PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
                 Log.d(TAG, "Seeked to: " + position);
@@ -902,6 +984,13 @@ public class AudioPlaybackService extends Service {
     public IBinder onBind(Intent intent) {
         Log.d(TAG, "Service bound");
         return binder;
+    }
+
+    public int getAudioSessionId() {
+        if (mediaPlayer != null) {
+            return mediaPlayer.getAudioSessionId();
+        }
+        return 0;
     }
 
     @Override

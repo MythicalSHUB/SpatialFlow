@@ -11,6 +11,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
@@ -21,7 +22,6 @@ import android.util.Log;
 import android.util.Rational;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 import android.view.animation.OvershootInterpolator;
 
@@ -43,8 +43,12 @@ import androidx.navigation.Navigation;
 import androidx.navigation.ui.NavigationUI;
 
 import com.codetrio.spatialflow.service.AudioPlaybackService;
+import com.codetrio.spatialflow.update.GitHubReleaseClient;
+import com.codetrio.spatialflow.update.UpdateManager;
+import com.codetrio.spatialflow.update.VersionUtils;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.color.DynamicColors;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public class MainActivity extends AppCompatActivity implements DefaultLifecycleObserver {
 
@@ -56,10 +60,12 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
     private BottomNavigationView navView;
     private NavController navController;
     private int previousDestination = R.id.navigation_player;
-    private boolean isNavigating = false; // Prevent rapid navigation
+    private boolean isNavigating = false;
 
     private AudioPlaybackService audioService;
     private boolean isServiceBound = false;
+    private UpdateManager updateManager;
+
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
@@ -93,7 +99,6 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
         navView = findViewById(R.id.nav_view);
         navController = Navigation.findNavController(this, R.id.nav_host_fragment_activity_main);
 
-        // Enable hardware acceleration for smooth animations
         navView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
         applyWindowInsetsBehavior();
@@ -107,26 +112,20 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
             navView.setSelectedItemId(R.id.navigation_player);
         }
 
-        // Smooth bottom nav with debounced navigation
         navView.setOnItemSelectedListener(item -> {
             int destId = item.getItemId();
             NavDestination current = navController.getCurrentDestination();
 
-            // Don't navigate if already on this destination or currently navigating
             if (current != null && current.getId() == destId) return true;
             if (isNavigating) return false;
 
-            // Bounce icon animation
             bounceBottomNavIcon(item);
 
-            // Get slide animation based on direction
             NavOptions navOptions = getNavOptions(previousDestination, destId);
 
-            // Navigate with debounce protection
             isNavigating = true;
             navController.navigate(destId, null, navOptions);
 
-            // Reset navigation lock after animation completes
             navView.postDelayed(() -> isNavigating = false, 300);
 
             previousDestination = destId;
@@ -137,17 +136,104 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
             bounceBottomNavIcon(item);
         });
 
-        // Add destination change listener to optimize fragment transitions
         navController.addOnDestinationChangedListener((controller, destination, arguments) -> {
-            // Force layout to prevent stuttering
             navView.requestLayout();
         });
+
+        // ===== 🆕 CHECK FOR UPDATE ON LAUNCH =====
+        updateManager = new UpdateManager(this);
+        checkForUpdateOnLaunch();
     }
+
+    // ===== 🆕 UPDATE CHECK LOGIC =====
+    private void checkForUpdateOnLaunch() {
+        if (!shouldCheckForUpdate()) {
+            Log.d(TAG, "Update check skipped (checked recently)");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                GitHubReleaseClient client = new GitHubReleaseClient("MythicalSHUB", "SpatialFlow");
+                GitHubReleaseClient.ReleaseInfo release = client.getLatestRelease();
+
+                if (release == null) {
+                    Log.d(TAG, "No release info available");
+                    return;
+                }
+
+                String currentVersion = BuildConfig.VERSION_NAME;
+                boolean isNewer = VersionUtils.isNewer(release.tagName, currentVersion);
+
+                if (isNewer) {
+                    runOnUiThread(() -> showUpdateDialog(release));
+                } else {
+                    Log.d(TAG, "App is up to date (current: " + currentVersion + ", latest: " + release.tagName + ")");
+                }
+
+            } catch (Exception e) {
+                Log.e(TAG, "Update check failed", e);
+            }
+        }).start();
+    }
+
+    private void showUpdateDialog(GitHubReleaseClient.ReleaseInfo release) {
+        String message = "Version " + release.tagName + " is now available!\n\n";
+
+        if (release.changelog != null && !release.changelog.isEmpty()) {
+            String changelog = release.changelog.length() > 350
+                    ? release.changelog.substring(0, 350) + "..."
+                    : release.changelog;
+            message += "📋 What's New:\n" + changelog;
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("🎉 Update Available")
+                .setMessage(message)
+                .setCancelable(true)
+                .setPositiveButton("Update Now", (dialog, which) -> {
+                    View rootView = findViewById(android.R.id.content);
+                    updateManager.checkForUpdate(rootView, BuildConfig.VERSION_NAME);
+                })
+                .setNegativeButton("Later", (dialog, which) -> dialog.dismiss())
+                .setNeutralButton("Don't Show Again", (dialog, which) -> {
+                    disableUpdateCheck();
+                    dialog.dismiss();
+                })
+                .show();
+    }
+
+    // Check once per day (24 hours)
+    private boolean shouldCheckForUpdate() {
+        SharedPreferences prefs = getSharedPreferences("update_prefs", Context.MODE_PRIVATE);
+
+        boolean updateCheckDisabled = prefs.getBoolean("update_check_disabled", false);
+        if (updateCheckDisabled) {
+            return false;
+        }
+
+        long lastCheck = prefs.getLong("last_update_check", 0);
+        long currentTime = System.currentTimeMillis();
+        long oneDayMillis = 24 * 60 * 60 * 1000;
+
+        if (currentTime - lastCheck > oneDayMillis) {
+            prefs.edit().putLong("last_update_check", currentTime).apply();
+            return true;
+        }
+        return false;
+    }
+
+    private void disableUpdateCheck() {
+        SharedPreferences prefs = getSharedPreferences("update_prefs", Context.MODE_PRIVATE);
+        prefs.edit().putBoolean("update_check_disabled", true).apply();
+        Log.d(TAG, "Auto update check disabled by user");
+    }
+
+    // ===== REST OF YOUR EXISTING CODE =====
 
     private void bounceBottomNavIcon(MenuItem item) {
         View iconView = navView.findViewById(item.getItemId());
         if (iconView != null) {
-            // Use hardware layer during animation for smoothness
             iconView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
             ObjectAnimator scaleX = ObjectAnimator.ofFloat(iconView, "scaleX", 1f, 1.4f, 1f);
@@ -161,7 +247,6 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
             animatorSet.addListener(new AnimatorListenerAdapter() {
                 @Override
                 public void onAnimationEnd(Animator animation) {
-                    // Reset to default layer type after animation
                     iconView.setLayerType(View.LAYER_TYPE_NONE, null);
                 }
             });
@@ -175,7 +260,6 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
         int toIndex = getDestinationIndex(toId);
 
         if (toIndex > fromIndex) {
-            // Forward navigation (Player → Effects → Settings)
             return new NavOptions.Builder()
                     .setEnterAnim(R.anim.fragment_cursel_in)
                     .setExitAnim(R.anim.fragment_cursel_out)
@@ -184,7 +268,6 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
                     .setLaunchSingleTop(true)
                     .build();
         } else {
-            // Backward navigation (Settings → Effects → Player)
             return new NavOptions.Builder()
                     .setEnterAnim(R.anim.fragment_cursel_in_pop)
                     .setExitAnim(R.anim.fragment_cursel_out_pop)
@@ -243,28 +326,31 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
     }
 
     private void applyWindowInsetsBehavior() {
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.container), (v, insets) -> {
-            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(v.getPaddingLeft(), sys.top, v.getPaddingRight(), sys.bottom);
-            return insets;
+        View container = findViewById(R.id.container);
+        View navHostFragment = findViewById(R.id.nav_host_fragment_activity_main);
+
+        ViewCompat.setOnApplyWindowInsetsListener(container, (v, windowInsets) -> {
+            Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(0, insets.top, 0, 0);
+            return windowInsets;
         });
 
-        ViewCompat.setOnApplyWindowInsetsListener(navView, (v, insets) -> {
-            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-
-            ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
-            params.bottomMargin = sys.bottom;
-            v.setLayoutParams(params);
-            v.bringToFront();
-            return insets;
+        ViewCompat.setOnApplyWindowInsetsListener(navView, (v, windowInsets) -> {
+            Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(
+                    v.getPaddingLeft(),
+                    v.getPaddingTop(),
+                    v.getPaddingRight(),
+                    insets.bottom
+            );
+            return WindowInsetsCompat.CONSUMED;
         });
 
-        ViewCompat.setOnApplyWindowInsetsListener(
-                findViewById(R.id.nav_host_fragment_activity_main),
-                (v, insets) -> insets
-        );
+        ViewCompat.setOnApplyWindowInsetsListener(navHostFragment, (v, windowInsets) -> {
+            return windowInsets;
+        });
 
-        findViewById(R.id.container).requestApplyInsets();
+        container.requestApplyInsets();
     }
 
     private void setupBottomNavColors(BottomNavigationView navView) {
@@ -319,12 +405,14 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
 
         WindowCompat.setDecorFitsSystemWindows(window, false);
 
-        WindowInsetsControllerCompat insetsController =
-                WindowCompat.getInsetsController(window, window.getDecorView());
-
         window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
         window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.setNavigationBarContrastEnforced(false);
+        }
+
+        WindowInsetsControllerCompat insetsController = WindowCompat.getInsetsController(window, window.getDecorView());
         if (insetsController != null) {
             insetsController.setAppearanceLightStatusBars(!isDarkMode);
             insetsController.setAppearanceLightNavigationBars(!isDarkMode);
@@ -342,8 +430,6 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
     public boolean onSupportNavigateUp() {
         return navController.navigateUp() || super.onSupportNavigateUp();
     }
-
-    // ===== PiP support =====
 
     public void enterPipModeIfPossible() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -368,7 +454,6 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
 
-        // PiP ONLY when PlayerFragment is visible and audio is playing
         if (isPlayerFragmentVisible() && audioService != null && audioService.isPlaying()) {
             enterPipModeIfPossible();
         }
@@ -379,7 +464,6 @@ public class MainActivity extends AppCompatActivity implements DefaultLifecycleO
         return currentDestination != null && currentDestination.getId() == R.id.navigation_player;
     }
 
-    // ===== LIFECYCLE =====
     @Override
     public void onStart(@NonNull LifecycleOwner owner) {
         DefaultLifecycleObserver.super.onStart(owner);

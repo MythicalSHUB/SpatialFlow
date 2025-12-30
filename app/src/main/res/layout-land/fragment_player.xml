@@ -2,58 +2,59 @@
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:paddingStart="@dimen/margin_screen_horizontal"
-    android:paddingEnd="@dimen/margin_screen_horizontal"
-    android:paddingTop="12dp"
-    android:paddingBottom="12dp"
     android:background="?attr/colorSurface">
 
-    <!-- === ALBUM ART CARD ==================================================== -->
+    <!-- Guideline to split the screen 45/55 -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guidelineCenter"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_percent="0.45" />
+
+    <!-- LEFT SIDE: ALBUM ART -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/cardAlbumArt"
-        style="?attr/materialCardViewElevatedStyle"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:cardCornerRadius="@dimen/album_art_corner_radius"
-        app:cardElevation="@dimen/album_art_elevation"
-        app:strokeWidth="0dp"
-        app:layout_constraintDimensionRatio="1:1"
-        app:layout_constraintWidth_percent="@dimen/album_art_width_percent"
-        app:layout_constraintHeight_max="@dimen/album_art_max_size"
+        android:layout_margin="24dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/guidelineCenter"
+        app:layout_constraintDimensionRatio="1:1"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
         <ImageView
             android:id="@+id/ivAlbumArt"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scaleType="centerCrop"
-            android:background="?attr/colorSurfaceVariant"
-            android:src="@drawable/ic_launcher_foreground"/>
+            android:src="@drawable/ic_launcher_foreground"
+            android:contentDescription="Album Art"/>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- === RIGHT SIDE CONTENT ================================================= -->
+    <!-- RIGHT SIDE: SCROLLABLE CONTROLS -->
     <androidx.core.widget.NestedScrollView
-        android:id="@+id/rightScroll"
         android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_marginStart="20dp"
+        android:layout_height="match_parent"
         android:fillViewport="true"
         android:scrollbars="none"
+        app:layout_constraintStart_toEndOf="@id/guidelineCenter"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toEndOf="@id/cardAlbumArt"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintBottom_toBottomOf="parent">
 
         <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/rightContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp">
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="16dp">
 
             <!-- SONG TITLE -->
             <com.google.android.material.textview.MaterialTextView
@@ -62,99 +63,173 @@
                 android:layout_height="wrap_content"
                 android:text="@string/no_song_selected"
                 android:textAppearance="?attr/textAppearanceTitleLarge"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold"
+                android:gravity="start"
                 android:maxLines="1"
                 android:ellipsize="marquee"
-                android:singleLine="true"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:scrollHorizontally="true"
-                android:textColor="?attr/colorOnSurface"
+                app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toStartOf="@+id/chipSongHaptics"
+                android:layout_marginEnd="8dp"/>
+
+            <!-- SONG HAPTICS CHIP (Aligned to title end in landscape) -->
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipSongHaptics"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checkable="true"
+                android:text="@string/song_haptics"
+                app:checkedIcon="@drawable/ic_vibration"
+                app:chipIcon="@drawable/ic_vibration_off"
+                app:chipIconSize="16dp"
+                app:layout_constraintBottom_toBottomOf="@id/tvSongName"
                 app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toTopOf="parent"/>
+                app:layout_constraintTop_toTopOf="@id/tvSongName" />
 
             <!-- SEEK BAR -->
             <com.google.android.material.slider.Slider
                 android:id="@+id/seekBar"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/margin_between_title_slider"
+                android:layout_marginTop="12dp"
                 android:valueFrom="0"
                 android:valueTo="100"
                 android:value="0"
-                app:thumbColor="?attr/colorPrimary"
-                app:trackColorActive="?attr/colorPrimary"
-                app:trackColorInactive="?attr/colorSurfaceVariant"
-                app:thumbRadius="@dimen/slider_thumb_radius"
-                app:trackHeight="@dimen/slider_track_height"
                 app:labelBehavior="gone"
+                app:thumbRadius="6dp"
+                app:trackHeight="8dp"
                 app:layout_constraintTop_toBottomOf="@id/tvSongName"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"/>
 
             <!-- TIME LABELS -->
-            <androidx.constraintlayout.widget.ConstraintLayout
-                android:id="@+id/timeContainer"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/margin_time_labels"
-                app:layout_constraintTop_toBottomOf="@id/seekBar"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintEnd_toEndOf="parent">
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/tvCurrentTime"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="00:00"
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    app:layout_constraintStart_toStartOf="parent"/>
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/tvTotalTime"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="00:00"
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    app:layout_constraintEnd_toEndOf="parent"/>
-            </androidx.constraintlayout.widget.ConstraintLayout>
-
-            <!-- PLAYBACK BUTTONS -->
-            <LinearLayout
-                android:id="@+id/controlsContainer"
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvCurrentTime"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center"
+                android:text="00:00"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                app:layout_constraintTop_toBottomOf="@id/seekBar"
+                app:layout_constraintStart_toStartOf="parent"/>
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvTotalTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                app:layout_constraintTop_toBottomOf="@id/seekBar"
+                app:layout_constraintEnd_toEndOf="parent"/>
+
+            <!-- PLAYER CONTROLS (Maintaining your Centered Icons code) -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/playerControlsCard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                app:layout_constraintTop_toBottomOf="@id/timeContainer"
+                app:layout_constraintTop_toBottomOf="@id/tvCurrentTime"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:cardCornerRadius="36dp"
+                app:cardElevation="0dp"
+                app:cardBackgroundColor="?attr/colorSurfaceContainerHigh">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="16dp"
+                    android:paddingVertical="12dp"
+                    android:gravity="center">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRewind30"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:insetLeft="0dp"
+                        android:insetTop="0dp"
+                        android:insetRight="0dp"
+                        android:insetBottom="0dp"
+                        app:icon="@drawable/ic_replay_30"
+                        app:iconSize="28dp"
+                        app:iconGravity="textStart"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnPlayPauseToggle"
+                        style="@style/Widget.Material3.Button.IconButton.Filled"
+                        android:layout_width="76dp"
+                        android:layout_height="76dp"
+                        android:layout_marginHorizontal="16dp"
+                        android:insetLeft="0dp"
+                        android:insetTop="0dp"
+                        android:insetRight="0dp"
+                        android:insetBottom="0dp"
+                        app:icon="@drawable/ic_pause"
+                        app:iconSize="36dp"
+                        app:iconGravity="textStart"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnForward30"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:insetLeft="0dp"
+                        android:insetTop="0dp"
+                        android:insetRight="0dp"
+                        android:insetBottom="0dp"
+                        app:icon="@drawable/ic_forward_30"
+                        app:iconSize="28dp"
+                        app:iconGravity="textStart"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- VOLUME CONTROLS (Smaller for Landscape) -->
+            <LinearLayout
+                android:id="@+id/volumeControlsContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal"
+                app:layout_constraintTop_toBottomOf="@id/playerControlsCard"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent">
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/btnPlayPauseToggle"
+                    android:id="@+id/btnMute"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:contentDescription="@string/cd_play_pause"
-                    app:srcCompat="@drawable/ic_play"
-                    app:fabCustomSize="@dimen/fab_play_size"
-                    app:maxImageSize="@dimen/fab_play_icon_size"
-                    app:backgroundTint="?attr/colorPrimaryContainer"
-                    app:tint="?attr/colorOnPrimaryContainer"/>
+                    app:srcCompat="@drawable/ic_volume_off"
+                    app:fabSize="mini"
+                    app:elevation="0dp"
+                    app:backgroundTint="?attr/colorSecondaryContainer"/>
 
                 <com.google.android.material.floatingactionbutton.FloatingActionButton
-                    android:id="@+id/btnStop"
+                    android:id="@+id/btnVolumeDown"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="20dp"
-                    android:contentDescription="@string/cd_stop"
-                    app:srcCompat="@drawable/ic_stop"
-                    app:fabCustomSize="@dimen/fab_play_size"
-                    app:maxImageSize="@dimen/fab_play_icon_size"
-                    app:backgroundTint="?attr/colorSecondaryContainer"
-                    app:tint="?attr/colorOnSecondaryContainer"/>
+                    android:layout_marginStart="12dp"
+                    app:srcCompat="@drawable/ic_volume_down"
+                    app:fabSize="mini"
+                    app:elevation="0dp"
+                    app:backgroundTint="?attr/colorSecondaryContainer"/>
+
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/btnVolumeUp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    app:srcCompat="@drawable/ic_volume_up"
+                    app:fabSize="mini"
+                    app:elevation="0dp"
+                    app:backgroundTint="?attr/colorSecondaryContainer"/>
             </LinearLayout>
 
             <!-- ACTION BUTTONS -->
@@ -162,38 +237,31 @@
                 android:id="@+id/actionButtonsContainer"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
                 android:orientation="horizontal"
-                android:gravity="center"
-                android:layout_marginTop="@dimen/margin_large"
-                app:layout_constraintTop_toBottomOf="@id/controlsContainer"
+                app:layout_constraintTop_toBottomOf="@id/volumeControlsContainer"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnChangeSong"
-                    style="@style/Widget.Material3.Button.TonalButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="@dimen/button_height"
+                    android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/change_song"
-                    app:icon="@drawable/ic_music_note"
-                    app:cornerRadius="14dp"
-                    android:layout_marginEnd="10dp"/>
+                    android:layout_marginEnd="8dp"/>
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSavePreset"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="0dp"
-                    android:layout_height="@dimen/button_height"
+                    android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="@string/save"
-                    app:icon="@drawable/ic_save"
-                    app:cornerRadius="14dp"
-                    android:layout_marginStart="10dp"/>
+                    android:text="@string/save"/>
             </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>
-
     </androidx.core.widget.NestedScrollView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,12 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
     <!-- Portrait Toolbar Title -->
     <style name="ToolbarTitleStyle" parent="TextAppearance.Material3.TitleLarge">
         <item name="android:textSize">20sp</item>
         <item name="android:textStyle">bold</item>
         <item name="fontFamily">sans-serif-medium</item>
-    </style>
 
+    </style>
+    <style name="Base.Theme.SpatialFlow" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">@color/md_theme_primary</item>
+
+        <!-- System bars styling -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:ignore="NewApi">true</item>
+        <item name="android:enforceNavigationBarContrast" tools:ignore="NewApi">false</item>
+    <!-- Add this line -->
+    <item name="linearProgressIndicatorStyle">@style/Widget.Material3Expressive.LinearProgressIndicator.Wavy</item>
+    </style>
     <!-- Landscape Toolbar Title - Smaller -->
     <style name="ToolbarTitleStyleLandscape" parent="TextAppearance.Material3.TitleMedium">
         <item name="android:textSize">16sp</item>
@@ -30,5 +43,10 @@
         <item name="backgroundTint">?attr/colorSurfaceContainerLow</item>
     </style>
 
-
+    <style name="ShapeAppearance.SpatialFlow.BottomSheet" parent="ShapeAppearance.Material3.MediumComponent">
+        <item name="cornerSizeTopLeft">32dp</item>
+        <item name="cornerSizeTopRight">32dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
 </resources>
