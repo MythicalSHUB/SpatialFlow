@@ -9,9 +9,24 @@
   <b>Lightweight • Fast • Material You • Open Source</b>
 </p>
 <p align="center">
+  <!-- Downloads & Release -->
   <img src="https://img.shields.io/github/downloads/MythicalSHUB/SpatialFlow/total?color=5C7AEA&style=for-the-badge" />
   <img src="https://img.shields.io/github/v/release/MythicalSHUB/SpatialFlow?color=4ADE80&style=for-the-badge" />
   <img src="https://img.shields.io/github/actions/workflow/status/MythicalSHUB/SpatialFlow/release.yml?style=for-the-badge&label=BUILD" />
+
+  <!-- Repo Health -->
+  <img src="https://img.shields.io/github/stars/MythicalSHUB/SpatialFlow?color=FBBF24&style=for-the-badge" />
+  <img src="https://img.shields.io/github/forks/MythicalSHUB/SpatialFlow?color=38BDF8&style=for-the-badge" />
+  <img src="https://img.shields.io/github/issues/MythicalSHUB/SpatialFlow?color=EF4444&style=for-the-badge" />
+
+  <!-- Tech Stack -->
+  <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" />
+  <img src="https://img.shields.io/badge/Language-Java-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" />
+  <img src="https://img.shields.io/badge/UI-Material_Design-757575?style=for-the-badge&logo=materialdesign&logoColor=white" />
+
+  <!-- License & Maintenance -->
+  <img src="https://img.shields.io/github/license/MythicalSHUB/SpatialFlow?color=10B981&style=for-the-badge" />
+  <img src="https://img.shields.io/github/last-commit/MythicalSHUB/SpatialFlow?color=8B5CF6&style=for-the-badge" />
 </p>
 
 ## Features
