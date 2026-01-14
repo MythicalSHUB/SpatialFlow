@@ -7,9 +7,22 @@ import android.util.Log;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
+
+import com.codetrio.spatialflow.model.SongItem;
 import com.codetrio.spatialflow.service.AudioPlaybackService;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
+
 public class PlayerSharedViewModel extends ViewModel {
+
+    private static final String TAG = "PlayerSharedViewModel";
+
+    private long lastSkipTime = 0;
+    private static final long SKIP_DEBOUNCE_DELAY = 500; // ms
 
     private MutableLiveData<Uri> songUri = new MutableLiveData<>();
     private MutableLiveData<Boolean> isPlaying = new MutableLiveData<>(false);
@@ -17,6 +30,13 @@ public class PlayerSharedViewModel extends ViewModel {
     private MutableLiveData<Integer> duration = new MutableLiveData<>(0);
     private MutableLiveData<Boolean> isProcessing = new MutableLiveData<>(false);
     private MutableLiveData<Integer> processingProgress = new MutableLiveData<>(0);
+
+    // Song Library Management
+    private MutableLiveData<List<SongItem>> songList = new MutableLiveData<>(new ArrayList<>());
+    private MutableLiveData<Integer> currentSongIndex = new MutableLiveData<>(-1);
+    private MutableLiveData<SongItem> currentSong = new MutableLiveData<>();
+    private MutableLiveData<Boolean> shouldPromptEffects = new MutableLiveData<>(false);
+    private MutableLiveData<Boolean> effectsRefreshTrigger = new MutableLiveData<>(false);
 
     // Effects settings
     private MutableLiveData<Boolean> is8DEnabled = new MutableLiveData<>(false);
@@ -45,6 +65,17 @@ public class PlayerSharedViewModel extends ViewModel {
 
     // Playback Speed
     private MutableLiveData<Float> playbackSpeed = new MutableLiveData<>(1.0f); // 0.5x to 2.0x
+
+    // Shuffle & Repeat
+    private MutableLiveData<Boolean> isShuffleEnabled = new MutableLiveData<>(false);
+    private MutableLiveData<Integer> repeatMode = new MutableLiveData<>(0); // 0=OFF, 1=ALL, 2=ONE
+    public static final int REPEAT_OFF = 0;
+    public static final int REPEAT_ALL = 1;
+    public static final int REPEAT_ONE = 2;
+    private Random shuffleRandom = new Random();
+
+    // Favorites
+    private MutableLiveData<Set<Long>> favoriteSongIds = new MutableLiveData<>(new HashSet<>());
 
     // Service reference
     private MutableLiveData<AudioPlaybackService> audioServiceLiveData = new MutableLiveData<>();
@@ -91,19 +122,23 @@ public class PlayerSharedViewModel extends ViewModel {
     }
 
     public void playAudio() {
-        if (audioService != null) audioService.play();
+        if (audioService != null)
+            audioService.play();
     }
 
     public void pauseAudio() {
-        if (audioService != null) audioService.pause();
+        if (audioService != null)
+            audioService.pause();
     }
 
     public void stopAudio() {
-        if (audioService != null) audioService.stop();
+        if (audioService != null)
+            audioService.stop();
     }
 
     public void seekTo(int position) {
-        if (audioService != null) audioService.seekTo(position);
+        if (audioService != null)
+            audioService.seekTo(position);
     }
 
     // ===== POSITION & DURATION =====
@@ -144,6 +179,18 @@ public class PlayerSharedViewModel extends ViewModel {
 
     public void setProcessingProgress(int progress) {
         processingProgress.setValue(progress);
+    }
+
+    // ===== EFFECTS REFRESH TRIGGER =====
+
+    public LiveData<Boolean> getEffectsRefreshTrigger() {
+        return effectsRefreshTrigger;
+    }
+
+    public void triggerEffectsRefresh() {
+        // Toggle the value to trigger observers
+        Boolean current = effectsRefreshTrigger.getValue();
+        effectsRefreshTrigger.setValue(current == null || !current);
     }
 
     // ===== 8D AUDIO =====
@@ -389,7 +436,8 @@ public class PlayerSharedViewModel extends ViewModel {
 
     // 🔥 NEW: Apply all current effects to service (for reconnection)
     public void applyAllEffects() {
-        if (audioService == null) return;
+        if (audioService == null)
+            return;
 
         // Apply all current state values to service
         audioService.set8DEnabled(is8DEnabled.getValue() != null && is8DEnabled.getValue());
@@ -418,7 +466,8 @@ public class PlayerSharedViewModel extends ViewModel {
         audioService.setBalance(balance.getValue() != null ? balance.getValue() : 0);
         audioService.setPlaybackSpeed(playbackSpeed.getValue() != null ? playbackSpeed.getValue() : 1.0f);
     }
-    // Add to your PlayerSharedViewModel class
+
+    // ===== HAPTICS =====
 
     private MutableLiveData<Boolean> isHapticsEnabled = new MutableLiveData<>(false);
 
@@ -428,9 +477,254 @@ public class PlayerSharedViewModel extends ViewModel {
 
     public void setHapticsEnabled(boolean enabled) {
         isHapticsEnabled.setValue(enabled);
-        Log.d("ViewModel", "Haptics state saved: " + enabled);
+        Log.d(TAG, "Haptics state saved: " + enabled);
     }
 
+    // ===== SONG LIBRARY MANAGEMENT =====
+
+    public LiveData<List<SongItem>> getSongList() {
+        return songList;
+    }
+
+    public void setSongList(List<SongItem> songs) {
+        songList.setValue(songs);
+        Log.d(TAG, "Song list updated: " + songs.size() + " songs");
+    }
+
+    public LiveData<Integer> getCurrentSongIndex() {
+        return currentSongIndex;
+    }
+
+    public LiveData<SongItem> getCurrentSong() {
+        return currentSong;
+    }
+
+    public LiveData<Boolean> getShouldPromptEffects() {
+        return shouldPromptEffects;
+    }
+
+    public void clearEffectsPrompt() {
+        shouldPromptEffects.setValue(false);
+    }
+
+    /**
+     * Check if any audio effect is currently enabled.
+     */
+    public boolean hasActiveEffects() {
+        Boolean _8d = is8DEnabled.getValue();
+        Boolean bass = isBassEnabled.getValue();
+        Boolean eq = isEqualizerEnabled.getValue();
+        Boolean loud = isLoudnessEnabled.getValue();
+
+        return (_8d != null && _8d) ||
+                (bass != null && bass) ||
+                (eq != null && eq) ||
+                (loud != null && loud);
+    }
+
+    /**
+     * Play song at a specific index in the library.
+     */
+    public void playSongAtIndex(int index) {
+        List<SongItem> songs = songList.getValue();
+        if (songs == null || index < 0 || index >= songs.size()) {
+            Log.w(TAG, "Invalid song index: " + index);
+            return;
+        }
+
+        SongItem song = songs.get(index);
+
+        // Auto-reset 8D when switching songs
+        SongItem previousSong = currentSong.getValue();
+        if (previousSong != null && previousSong.id != song.id) {
+            if (Boolean.TRUE.equals(is8DEnabled.getValue())) {
+                is8DEnabled.setValue(false);
+                if (audioService != null) {
+                    audioService.set8DEnabled(false);
+                }
+                Log.d(TAG, "8D auto-disabled on song change");
+            }
+        }
+
+        currentSongIndex.setValue(index);
+        currentSong.setValue(song);
+        songUri.setValue(song.contentUri);
+
+        // Check if we should prompt for effects
+        if (hasActiveEffects()) {
+            shouldPromptEffects.setValue(true);
+        }
+
+        if (audioService != null) {
+            audioService.loadAndPlay(song.contentUri); // Use loadAndPlay for autoplay
+        }
+
+        Log.d(TAG, "Playing song at index " + index + ": " + song.title);
+    }
+
+    /**
+     * Play the next song in the library (respects shuffle and repeat modes).
+     */
+    public void playNextSong() {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastSkipTime < SKIP_DEBOUNCE_DELAY) {
+            Log.d(TAG, "playNextSong ignored (debounced)");
+            return;
+        }
+        lastSkipTime = currentTime;
+
+        int nextIndex = getNextSongIndex();
+        if (nextIndex >= 0) {
+            playSongAtIndex(nextIndex);
+        } else {
+            // End of playlist, stop playback
+            Log.d(TAG, "End of playlist reached");
+            if (audioService != null) {
+                audioService.pause();
+            }
+        }
+    }
+
+    /**
+     * Play the previous song in the library.
+     */
+    public void playPreviousSong() {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastSkipTime < SKIP_DEBOUNCE_DELAY) {
+            Log.d(TAG, "playPreviousSong ignored (debounced)");
+            return;
+        }
+        lastSkipTime = currentTime;
+
+        List<SongItem> songs = songList.getValue();
+        Integer currentIdx = currentSongIndex.getValue();
+
+        if (songs == null || songs.isEmpty()) {
+            Log.w(TAG, "No songs in library");
+            return;
+        }
+
+        int prevIndex;
+        if (currentIdx == null || currentIdx <= 0) {
+            prevIndex = songs.size() - 1;
+        } else {
+            prevIndex = currentIdx - 1;
+        }
+
+        playSongAtIndex(prevIndex);
+    }
+
+    /**
+     * Find index of song by ID.
+     */
+    public int findSongIndexById(long songId) {
+        List<SongItem> songs = songList.getValue();
+        if (songs == null)
+            return -1;
+
+        for (int i = 0; i < songs.size(); i++) {
+            if (songs.get(i).id == songId) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // ===== SHUFFLE & REPEAT =====
+
+    public LiveData<Boolean> getIsShuffleEnabled() {
+        return isShuffleEnabled;
+    }
+
+    public void toggleShuffle() {
+        Boolean current = isShuffleEnabled.getValue();
+        isShuffleEnabled.setValue(current == null || !current);
+        Log.d(TAG, "Shuffle " + (isShuffleEnabled.getValue() ? "enabled" : "disabled"));
+    }
+
+    public LiveData<Integer> getRepeatMode() {
+        return repeatMode;
+    }
+
+    public void cycleRepeatMode() {
+        Integer current = repeatMode.getValue();
+        if (current == null)
+            current = REPEAT_OFF;
+        int next = (current + 1) % 3; // OFF -> ALL -> ONE -> OFF
+        repeatMode.setValue(next);
+        Log.d(TAG, "Repeat mode: " + (next == REPEAT_OFF ? "OFF" : next == REPEAT_ALL ? "ALL" : "ONE"));
+    }
+
+    /**
+     * Get next song index respecting shuffle and repeat modes.
+     */
+    public int getNextSongIndex() {
+        List<SongItem> songs = songList.getValue();
+        Integer currentIdx = currentSongIndex.getValue();
+        Integer mode = repeatMode.getValue();
+        Boolean shuffle = isShuffleEnabled.getValue();
+
+        if (songs == null || songs.isEmpty())
+            return -1;
+        if (currentIdx == null)
+            currentIdx = -1;
+        if (mode == null)
+            mode = REPEAT_OFF;
+        if (shuffle == null)
+            shuffle = false;
+
+        // Repeat ONE: stay on same song
+        if (mode == REPEAT_ONE) {
+            return currentIdx >= 0 ? currentIdx : 0;
+        }
+
+        // Shuffle: pick random
+        if (shuffle && songs.size() > 1) {
+            int nextIdx = currentIdx;
+            while (nextIdx == currentIdx) {
+                nextIdx = shuffleRandom.nextInt(songs.size());
+            }
+            return nextIdx;
+        }
+
+        // Normal: next in sequence
+        int nextIdx = currentIdx + 1;
+        if (nextIdx >= songs.size()) {
+            if (mode == REPEAT_ALL) {
+                nextIdx = 0; // Loop back
+            } else {
+                return -1; // End of list, no repeat
+            }
+        }
+        return nextIdx;
+    }
+
+    // ===== FAVORITES =====
+
+    public LiveData<Set<Long>> getFavoriteSongIds() {
+        return favoriteSongIds;
+    }
+
+    public void toggleFavorite(long songId) {
+        Set<Long> favorites = favoriteSongIds.getValue();
+        if (favorites == null)
+            favorites = new HashSet<>();
+
+        Set<Long> newFavorites = new HashSet<>(favorites);
+        if (newFavorites.contains(songId)) {
+            newFavorites.remove(songId);
+            Log.d(TAG, "Removed from favorites: " + songId);
+        } else {
+            newFavorites.add(songId);
+            Log.d(TAG, "Added to favorites: " + songId);
+        }
+        favoriteSongIds.setValue(newFavorites);
+    }
+
+    public boolean isFavorite(long songId) {
+        Set<Long> favorites = favoriteSongIds.getValue();
+        return favorites != null && favorites.contains(songId);
+    }
 
     // ===== LIFECYCLE =====
 

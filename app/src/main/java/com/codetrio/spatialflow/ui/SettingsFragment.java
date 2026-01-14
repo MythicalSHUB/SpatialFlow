@@ -32,7 +32,8 @@ public class SettingsFragment extends Fragment {
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_settings, container, false);
 
         updateManager = new UpdateManager(requireContext());
@@ -43,16 +44,20 @@ public class SettingsFragment extends Fragment {
         MaterialSwitch switchTheme = view.findViewById(R.id.switchTheme);
 
         SharedPreferences prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        boolean isDarkMode = prefs.getBoolean(KEY_DARK_MODE, false);
-        switchTheme.setChecked(isDarkMode);
+
+        // Check current actual night mode status from configuration
+        int currentNightMode = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        boolean isCurrentlyDark = currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+        // Set switch to reflect current actual state (not saved preference)
+        switchTheme.setChecked(isCurrentlyDark);
 
         switchTheme.setOnCheckedChangeListener((buttonView, isChecked) -> {
             prefs.edit().putBoolean(KEY_DARK_MODE, isChecked).apply();
 
             AppCompatDelegate.setDefaultNightMode(
-                    isChecked ? AppCompatDelegate.MODE_NIGHT_YES :
-                            AppCompatDelegate.MODE_NIGHT_NO
-            );
+                    isChecked ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO);
         });
 
         // ---------------------------

@@ -56,13 +56,14 @@
     <string name="whats_new_positive_button">Got It</string>
     <string name="whats_new_content_template"><![CDATA[
         <b>Version %1$s Highlights:</b><ul>
-        <li> Added Song Haptics (Exclusive Feature)</li>
-        <li> Changed Player Controls (Added 30sec Forward and Backward Skip)</li>
-        <li> Added Volume Slider For Better UX</li>
-        <li> Improved 8D Processing</li>
-        <li> Seekbar Changed to Progressbar(Wavy)</li>
-        <li> Improved Audio Effects</li>
-        <li> Added Update Checker On App Start</li>
+        <li> 8D Auto-Reset on Song Change</li>
+        <li> Full Light Mode Support (Player, Effects, Mesh Gradient)</li>
+        <li> Fixed Landscape Mode (Player &amp; Effects)</li>
+        <li> Dark Mode Toggle Syncs with System Theme</li>
+        <li> Optimized 8D Processing (Faster FFmpeg, No Bass Interference)</li>
+        <li> Better Bottom Spacing in Effects &amp; Settings</li>
+        <li> Enhanced Mini Player Styling</li>
+        <li> Improved Mesh Gradient Animations</li>
         </ul>]]></string>
     <string name="hello_blank_fragment">Hello blank fragment</string>
     <string name="song_haptics">Song Haptics</string>

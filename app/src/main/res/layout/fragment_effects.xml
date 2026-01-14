@@ -5,13 +5,19 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/colorSurface"
-    android:fillViewport="true">
+    android:fillViewport="true"
+    android:clipToPadding="false"
+    android:paddingBottom="100dp"
+    android:fitsSystemWindows="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="20dp"
+        android:paddingBottom="120dp">
 
         <!-- Header -->
         <com.google.android.material.textview.MaterialTextView
@@ -79,7 +85,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            app:cardBackgroundColor="?attr/colorSurfaceVariant"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardCornerRadius="20dp"
             app:cardElevation="0dp">
 
@@ -116,10 +122,7 @@
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/switch8D"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            app:thumbTint="?attr/colorPrimary"
-                            app:trackTint="?attr/colorSurfaceVariant"
-                            app:trackDecorationTint="?attr/colorOutlineVariant" />
+                            android:layout_height="wrap_content" />
                     </LinearLayout>
 
                     <com.google.android.material.textview.MaterialTextView
@@ -166,10 +169,7 @@
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/switchBass"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            app:thumbTint="?attr/colorPrimary"
-                            app:trackTint="?attr/colorSurfaceVariant"
-                            app:trackDecorationTint="?attr/colorOutlineVariant" />
+                            android:layout_height="wrap_content" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -251,10 +251,7 @@
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/switchEqualizer"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            app:thumbTint="?attr/colorPrimary"
-                            app:trackTint="?attr/colorSurfaceVariant"
-                            app:trackDecorationTint="?attr/colorOutlineVariant" />
+                            android:layout_height="wrap_content" />
                     </LinearLayout>
 
                     <!-- Band 1 -->
@@ -281,6 +278,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
+                            app:centered="true"
                             app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
@@ -325,6 +323,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
+                            app:centered="true"
                             app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
@@ -369,6 +368,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
+                            app:centered="true"
                             app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
@@ -413,6 +413,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
+                            app:centered="true"
                             app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
@@ -457,6 +458,7 @@
                             android:valueFrom="-12"
                             android:valueTo="12"
                             android:value="0"
+                            app:centered="true"
                             app:trackCornerSize="3dp"
                             android:enabled="false"
                             app:labelBehavior="gone"
@@ -490,7 +492,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:layout_marginBottom="24dp"
-            app:cardBackgroundColor="?attr/colorSurfaceVariant"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardCornerRadius="20dp"
             app:cardElevation="0dp">
 
@@ -527,10 +529,7 @@
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/switchLoudness"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            app:thumbTint="?attr/colorPrimary"
-                            app:trackTint="?attr/colorSurfaceVariant"
-                            app:trackDecorationTint="?attr/colorOutlineVariant" />
+                            android:layout_height="wrap_content" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -612,10 +611,7 @@
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/switchBalance"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            app:thumbTint="?attr/colorPrimary"
-                            app:trackTint="?attr/colorSurfaceVariant"
-                            app:trackDecorationTint="?attr/colorOutlineVariant" />
+                            android:layout_height="wrap_content" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -662,6 +658,7 @@
                             android:valueFrom="-50"
                             android:valueTo="50"
                             android:value="0"
+                            app:centered="true"
                             app:trackCornerSize="6dp"
                             app:labelBehavior="gone"
                             app:thumbColor="?attr/colorPrimary"
@@ -751,10 +748,7 @@
                             android:id="@+id/switchSpeed"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:checked="true"
-                            app:thumbTint="?attr/colorPrimary"
-                            app:trackTint="?attr/colorSurfaceVariant"
-                            app:trackDecorationTint="?attr/colorOutlineVariant" />
+                            android:checked="true" />
                     </LinearLayout>
 
                     <com.google.android.material.textview.MaterialTextView

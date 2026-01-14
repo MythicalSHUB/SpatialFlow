@@ -84,7 +84,7 @@
                     style="?attr/materialCardViewFilledStyle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
                     app:cardCornerRadius="20dp"
                     app:cardElevation="0dp">
 
@@ -479,7 +479,7 @@
                     style="?attr/materialCardViewFilledStyle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
                     app:cardCornerRadius="20dp"
                     app:cardElevation="0dp">
 
@@ -707,14 +707,30 @@
                             android:orientation="vertical"
                             android:padding="16dp">
 
-                            <com.google.android.material.textview.MaterialTextView
-                                android:id="@+id/tvSpeedTitle"
+                            <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:paddingTop="2dp"
-                                android:text="Playback Speed"
-                                android:textAppearance="?attr/textAppearanceTitleMedium"
-                                android:textColor="?attr/colorOnSurface" />
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical">
+
+                                <com.google.android.material.textview.MaterialTextView
+                                    android:id="@+id/tvSpeedTitle"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="Playback Speed"
+                                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                                    android:textColor="?attr/colorOnSurface" />
+
+                                <com.google.android.material.materialswitch.MaterialSwitch
+                                    android:id="@+id/switchSpeed"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:checked="true"
+                                    app:thumbTint="?attr/colorPrimary"
+                                    app:trackTint="?attr/colorSurfaceVariant"
+                                    app:trackDecorationTint="?attr/colorOutlineVariant" />
+                            </LinearLayout>
 
                             <LinearLayout
                                 android:layout_width="match_parent"

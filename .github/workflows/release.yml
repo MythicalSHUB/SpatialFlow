@@ -55,22 +55,24 @@ jobs:
           body: |
             ## SpatialFlow ${{ github.ref_name }}
             
-            ### What's New
-            - Updated app logo
-            - Replaced Toast notifications with Snackbar in player
-            - Added landscape mode support
-            - Added copyright information in Settings page
+            ### What's New in v1.6
+            - 8D Auto-Reset on Song Change
+            - Full Light Mode Support (Player, Effects, Mesh Gradient)
+            - Fixed Landscape Mode (Player & Effects)
+            - Dark Mode Toggle Syncs with System Theme
+            - Optimized 8D Processing (Faster FFmpeg, No Bass Interference)
+            - Better Bottom Spacing in Effects & Settings
+            - Enhanced Mini Player Styling
+            - Improved Mesh Gradient Animations
             
             ### Installation
             1. Download `app-release.apk`
             2. Install on your Android device
             3. Or use in-app "Check for updates" to auto-update
             
-            ⚠️ **Note for v1.0.0 users**: You must uninstall the old version first before installing v1.1. Future updates will install seamlessly.
-            
             ### Technical Details
             - Min SDK: 24 (Android 7.0+)
             - Target SDK: 35 (Android 15)
-            - Version Code: 3
+            - Version Code: 6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

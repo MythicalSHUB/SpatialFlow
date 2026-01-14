@@ -34,10 +34,16 @@ public class EffectsFragment extends Fragment {
     // Guard to ignore programmatic switch updates
     private boolean ignoreSwitchEvents = false;
 
+    // Flag to prevent redundant service calls during initialization
+    private boolean isInitializing = true;
+
+    // Track last song ID for proper song change detection
+    private long lastSongId = -1;
+
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
-                             @Nullable Bundle savedInstanceState) {
+            @Nullable Bundle savedInstanceState) {
         binding = FragmentEffectsBinding.inflate(inflater, container, false);
         return binding.getRoot();
     }
@@ -46,10 +52,19 @@ public class EffectsFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
+        // Start initialization - observers will only update UI, not service
+        isInitializing = true;
+
         viewModel = new ViewModelProvider(requireActivity()).get(PlayerSharedViewModel.class);
 
         setupObservers();
         setupListeners();
+
+        // End initialization after a short delay to ensure all observers have fired
+        view.post(() -> {
+            isInitializing = false;
+            Log.d(TAG, "EffectsFragment initialization complete");
+        });
 
         Log.d(TAG, "EffectsFragment initialized with ViewBinding");
     }
@@ -65,17 +80,42 @@ public class EffectsFragment extends Fragment {
             }
         });
 
+        // Song change - Reset 8D toggle when a DIFFERENT song is selected
+        viewModel.getCurrentSong().observe(getViewLifecycleOwner(), song -> {
+            if (song != null) {
+                long currentSongId = song.id;
+
+                // Only reset if this is actually a different song (not first load or same song)
+                if (lastSongId != -1 && currentSongId != lastSongId) {
+                    // Turn off 8D when song changes
+                    if (Boolean.TRUE.equals(viewModel.getIs8DEnabled().getValue())) {
+                        viewModel.set8DEnabled(false);
+                        if (service != null) {
+                            service.set8DEnabled(false);
+                        }
+                        Log.d(TAG, "8D auto-disabled on song change (was: " + lastSongId + ", now: " + currentSongId
+                                + ")");
+                    }
+                }
+
+                // Update last song ID
+                lastSongId = currentSongId;
+            }
+        });
+
         // 8D Audio
         viewModel.getIs8DEnabled().observe(getViewLifecycleOwner(), enabled -> {
             if (enabled != null) {
                 ignoreSwitchEvents = true;
-                if (binding != null) binding.switch8D.setChecked(enabled);
+                if (binding != null)
+                    binding.switch8D.setChecked(enabled);
                 ignoreSwitchEvents = false;
 
-                if (service != null) {
+                // Skip service call during initialization - applyAllEffectsToService handles it
+                if (!isInitializing && service != null) {
                     service.set8DEnabled(enabled);
+                    Log.d(TAG, "8D state: " + enabled);
                 }
-                Log.d(TAG, "8D state: " + enabled);
             }
         });
 
@@ -84,7 +124,8 @@ public class EffectsFragment extends Fragment {
             if (enabled != null && binding != null) {
                 binding.switchBass.setChecked(enabled);
                 binding.sliderBassBoost.setEnabled(enabled);
-                if (service != null) {
+                // Skip service call during initialization
+                if (!isInitializing && service != null) {
                     service.setBassEnabled(enabled);
                 }
             }
@@ -94,7 +135,9 @@ public class EffectsFragment extends Fragment {
             if (boost != null && binding != null) {
                 binding.sliderBassBoost.setValue(boost);
                 binding.tvBassBoostValue.setText(String.format(Locale.getDefault(), "%+d dB", boost));
-                if (service != null && Boolean.TRUE.equals(viewModel.getIsBassEnabled().getValue())) {
+                // Skip service call during initialization
+                if (!isInitializing && service != null
+                        && Boolean.TRUE.equals(viewModel.getIsBassEnabled().getValue())) {
                     service.setBassBoost(boost);
                 }
             }
@@ -105,25 +148,32 @@ public class EffectsFragment extends Fragment {
             if (enabled != null && binding != null) {
                 binding.switchEqualizer.setChecked(enabled);
                 enableEqualizerSliders(enabled);
-                if (service != null) {
+                // Skip service call during initialization
+                if (!isInitializing && service != null) {
                     service.setEqualizerEnabled(enabled);
                 }
             }
         });
 
         // EQ Bands
-        viewModel.getEqBand1().observe(getViewLifecycleOwner(), gain -> updateEqBand(0, gain, binding != null ? binding.sliderBand1 : null, binding != null ? binding.tvBand1Value : null));
-        viewModel.getEqBand2().observe(getViewLifecycleOwner(), gain -> updateEqBand(1, gain, binding != null ? binding.sliderBand2 : null, binding != null ? binding.tvBand2Value : null));
-        viewModel.getEqBand3().observe(getViewLifecycleOwner(), gain -> updateEqBand(2, gain, binding != null ? binding.sliderBand3 : null, binding != null ? binding.tvBand3Value : null));
-        viewModel.getEqBand4().observe(getViewLifecycleOwner(), gain -> updateEqBand(3, gain, binding != null ? binding.sliderBand4 : null, binding != null ? binding.tvBand4Value : null));
-        viewModel.getEqBand5().observe(getViewLifecycleOwner(), gain -> updateEqBand(4, gain, binding != null ? binding.sliderBand5 : null, binding != null ? binding.tvBand5Value : null));
+        viewModel.getEqBand1().observe(getViewLifecycleOwner(), gain -> updateEqBand(0, gain,
+                binding != null ? binding.sliderBand1 : null, binding != null ? binding.tvBand1Value : null));
+        viewModel.getEqBand2().observe(getViewLifecycleOwner(), gain -> updateEqBand(1, gain,
+                binding != null ? binding.sliderBand2 : null, binding != null ? binding.tvBand2Value : null));
+        viewModel.getEqBand3().observe(getViewLifecycleOwner(), gain -> updateEqBand(2, gain,
+                binding != null ? binding.sliderBand3 : null, binding != null ? binding.tvBand3Value : null));
+        viewModel.getEqBand4().observe(getViewLifecycleOwner(), gain -> updateEqBand(3, gain,
+                binding != null ? binding.sliderBand4 : null, binding != null ? binding.tvBand4Value : null));
+        viewModel.getEqBand5().observe(getViewLifecycleOwner(), gain -> updateEqBand(4, gain,
+                binding != null ? binding.sliderBand5 : null, binding != null ? binding.tvBand5Value : null));
 
         // Loudness
         viewModel.getIsLoudnessEnabled().observe(getViewLifecycleOwner(), enabled -> {
             if (enabled != null && binding != null) {
                 binding.switchLoudness.setChecked(enabled);
                 binding.sliderLoudness.setEnabled(enabled);
-                if (service != null) {
+                // Skip service call during initialization
+                if (!isInitializing && service != null) {
                     service.setLoudnessEnabled(enabled);
                 }
             }
@@ -133,7 +183,9 @@ public class EffectsFragment extends Fragment {
             if (gain != null && binding != null) {
                 binding.sliderLoudness.setValue(gain);
                 binding.tvLoudnessValue.setText(String.format(Locale.getDefault(), "+%d dB", gain));
-                if (service != null && Boolean.TRUE.equals(viewModel.getIsLoudnessEnabled().getValue())) {
+                // Skip service call during initialization
+                if (!isInitializing && service != null
+                        && Boolean.TRUE.equals(viewModel.getIsLoudnessEnabled().getValue())) {
                     service.setLoudnessGain(gain);
                 }
             }
@@ -144,7 +196,8 @@ public class EffectsFragment extends Fragment {
             if (balance != null && binding != null) {
                 binding.sliderBalance.setValue(balance);
                 updateBalanceLabel(balance);
-                if (service != null && binding.switchBalance.isChecked()) {
+                // Skip service call during initialization
+                if (!isInitializing && service != null && binding.switchBalance.isChecked()) {
                     service.setBalance(balance);
                 }
             }
@@ -155,7 +208,8 @@ public class EffectsFragment extends Fragment {
             if (speed != null && binding != null) {
                 binding.sliderSpeed.setValue(speed);
                 binding.tvSpeedValue.setText(String.format(Locale.getDefault(), "%.2fx", speed));
-                if (service != null) {
+                // Skip service call during initialization and only if speed toggle is enabled
+                if (!isInitializing && service != null && binding.switchSpeed.isChecked()) {
                     service.setPlaybackSpeed(speed);
                 }
             }
@@ -163,7 +217,8 @@ public class EffectsFragment extends Fragment {
 
         // Processing Status
         viewModel.getIsProcessing().observe(getViewLifecycleOwner(), isProcessing -> {
-            if (binding == null) return;
+            if (binding == null)
+                return;
             if (isProcessing != null) {
                 binding.cardProcessing.setVisibility(isProcessing ? View.VISIBLE : View.GONE);
 
@@ -177,7 +232,10 @@ public class EffectsFragment extends Fragment {
                     // Stop wavy animation
                     binding.progressBar.setWaveSpeed(0);
                     binding.progressBar.setWaveAmplitude(0);
-                    refreshAllEffects();
+                    // Only refresh effects if not initializing (actual processing just finished)
+                    if (!isInitializing) {
+                        refreshAllEffects();
+                    }
                 }
 
                 Log.d(TAG, "Processing: " + isProcessing);
@@ -185,7 +243,8 @@ public class EffectsFragment extends Fragment {
         });
 
         viewModel.getProcessingProgress().observe(getViewLifecycleOwner(), progress -> {
-            if (binding == null) return;
+            if (binding == null)
+                return;
             if (progress != null && progress > 0) {
                 binding.progressBar.setIndeterminate(false);
                 binding.progressBar.setProgress(progress);
@@ -210,14 +269,35 @@ public class EffectsFragment extends Fragment {
                 }
             }
         });
+
+        // Effects refresh trigger (when song changes)
+        final boolean[] isFirstTrigger = { true };
+        viewModel.getEffectsRefreshTrigger().observe(getViewLifecycleOwner(), triggered -> {
+            // Skip the initial observer registration call
+            if (isFirstTrigger[0]) {
+                isFirstTrigger[0] = false;
+                return;
+            }
+
+            if (binding != null) {
+                Log.d(TAG, "Song changed - refreshing effects UI, 8D disabled");
+                // Reset UI to reflect 8D disabled state
+                ignoreSwitchEvents = true;
+                binding.switch8D.setChecked(false);
+                ignoreSwitchEvents = false;
+                refreshAllEffects();
+            }
+        });
     }
 
     private void setupListeners() {
-        if (binding == null) return;
+        if (binding == null)
+            return;
 
         // ===== 8D AUDIO (FFMPEG PROCESSING) =====
         binding.switch8D.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (ignoreSwitchEvents) return;
+            if (ignoreSwitchEvents)
+                return;
 
             Log.d(TAG, "8D switch toggled (user): " + isChecked);
 
@@ -337,18 +417,30 @@ public class EffectsFragment extends Fragment {
     }
 
     private void setupBandSlider(Slider slider, TextView valueView, int bandIndex) {
-        if (slider == null) return;
+        if (slider == null)
+            return;
         slider.addOnChangeListener((s, value, fromUser) -> {
             if (fromUser) {
                 int dbValue = (int) value;
-                if (valueView != null) valueView.setText(String.format(Locale.getDefault(), "%+d dB", dbValue));
+                if (valueView != null)
+                    valueView.setText(String.format(Locale.getDefault(), "%+d dB", dbValue));
 
                 switch (bandIndex) {
-                    case 0: viewModel.setEqBand1(dbValue); break;
-                    case 1: viewModel.setEqBand2(dbValue); break;
-                    case 2: viewModel.setEqBand3(dbValue); break;
-                    case 3: viewModel.setEqBand4(dbValue); break;
-                    case 4: viewModel.setEqBand5(dbValue); break;
+                    case 0:
+                        viewModel.setEqBand1(dbValue);
+                        break;
+                    case 1:
+                        viewModel.setEqBand2(dbValue);
+                        break;
+                    case 2:
+                        viewModel.setEqBand3(dbValue);
+                        break;
+                    case 3:
+                        viewModel.setEqBand4(dbValue);
+                        break;
+                    case 4:
+                        viewModel.setEqBand5(dbValue);
+                        break;
                 }
 
                 if (service != null && binding != null && binding.switchEqualizer.isChecked()) {
@@ -359,18 +451,22 @@ public class EffectsFragment extends Fragment {
     }
 
     private void updateEqBand(int bandIndex, Integer gain, Slider slider, TextView valueText) {
-        if (slider == null || valueText == null) return;
+        if (slider == null || valueText == null)
+            return;
         if (gain != null) {
             slider.setValue(gain);
             valueText.setText(String.format(Locale.getDefault(), "%+d dB", gain));
-            if (service != null && Boolean.TRUE.equals(viewModel.getIsEqualizerEnabled().getValue())) {
+            // Skip service call during initialization
+            if (!isInitializing && service != null
+                    && Boolean.TRUE.equals(viewModel.getIsEqualizerEnabled().getValue())) {
                 service.setEqBandGain(bandIndex, gain);
             }
         }
     }
 
     private void updateBalanceLabel(int balance) {
-        if (binding == null) return;
+        if (binding == null)
+            return;
         if (balance == 0) {
             binding.tvBalanceValue.setText("Center");
         } else if (balance < 0) {
@@ -381,7 +477,8 @@ public class EffectsFragment extends Fragment {
     }
 
     private void enableEqualizerSliders(boolean enabled) {
-        if (binding == null) return;
+        if (binding == null)
+            return;
         binding.sliderBand1.setEnabled(enabled);
         binding.sliderBand2.setEnabled(enabled);
         binding.sliderBand3.setEnabled(enabled);
@@ -390,7 +487,8 @@ public class EffectsFragment extends Fragment {
     }
 
     private void disableControls() {
-        if (binding == null) return;
+        if (binding == null)
+            return;
         binding.switch8D.setEnabled(false);
         binding.switchBass.setEnabled(false);
         binding.sliderBassBoost.setEnabled(false);
@@ -405,7 +503,8 @@ public class EffectsFragment extends Fragment {
     }
 
     private void enableControls() {
-        if (binding == null) return;
+        if (binding == null)
+            return;
         binding.switch8D.setEnabled(true);
         binding.switchBass.setEnabled(true);
 
@@ -428,14 +527,16 @@ public class EffectsFragment extends Fragment {
     }
 
     private void refreshAllEffects() {
-        if (service == null || binding == null) return;
+        if (service == null || binding == null)
+            return;
 
         Log.d(TAG, "Refreshing all effects after 8D processing");
 
         applyAllEffectsToService();
 
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (binding == null) return;
+            if (binding == null)
+                return;
 
             // Refresh Bass
             Boolean bassEnabled = viewModel.getIsBassEnabled().getValue();
@@ -451,19 +552,24 @@ public class EffectsFragment extends Fragment {
             Boolean eqEnabled = viewModel.getIsEqualizerEnabled().getValue();
             if (eqEnabled != null && eqEnabled) {
                 Integer band1 = viewModel.getEqBand1().getValue();
-                if (band1 != null) binding.sliderBand1.setValue(band1);
+                if (band1 != null)
+                    binding.sliderBand1.setValue(band1);
 
                 Integer band2 = viewModel.getEqBand2().getValue();
-                if (band2 != null) binding.sliderBand2.setValue(band2);
+                if (band2 != null)
+                    binding.sliderBand2.setValue(band2);
 
                 Integer band3 = viewModel.getEqBand3().getValue();
-                if (band3 != null) binding.sliderBand3.setValue(band3);
+                if (band3 != null)
+                    binding.sliderBand3.setValue(band3);
 
                 Integer band4 = viewModel.getEqBand4().getValue();
-                if (band4 != null) binding.sliderBand4.setValue(band4);
+                if (band4 != null)
+                    binding.sliderBand4.setValue(band4);
 
                 Integer band5 = viewModel.getEqBand5().getValue();
-                if (band5 != null) binding.sliderBand5.setValue(band5);
+                if (band5 != null)
+                    binding.sliderBand5.setValue(band5);
             }
 
             // Refresh Loudness
@@ -499,7 +605,8 @@ public class EffectsFragment extends Fragment {
     }
 
     private void applyAllEffectsToService() {
-        if (service == null) return;
+        if (service == null)
+            return;
 
         Boolean is8D = viewModel.getIs8DEnabled().getValue();
         if (is8D != null) {
@@ -522,19 +629,24 @@ public class EffectsFragment extends Fragment {
             service.setEqualizerEnabled(eqEnabled);
             if (eqEnabled) {
                 Integer band1 = viewModel.getEqBand1().getValue();
-                if (band1 != null) service.setEqBandGain(0, band1);
+                if (band1 != null)
+                    service.setEqBandGain(0, band1);
 
                 Integer band2 = viewModel.getEqBand2().getValue();
-                if (band2 != null) service.setEqBandGain(1, band2);
+                if (band2 != null)
+                    service.setEqBandGain(1, band2);
 
                 Integer band3 = viewModel.getEqBand3().getValue();
-                if (band3 != null) service.setEqBandGain(2, band3);
+                if (band3 != null)
+                    service.setEqBandGain(2, band3);
 
                 Integer band4 = viewModel.getEqBand4().getValue();
-                if (band4 != null) service.setEqBandGain(3, band4);
+                if (band4 != null)
+                    service.setEqBandGain(3, band4);
 
                 Integer band5 = viewModel.getEqBand5().getValue();
-                if (band5 != null) service.setEqBandGain(4, band5);
+                if (band5 != null)
+                    service.setEqBandGain(4, band5);
             }
         }
 

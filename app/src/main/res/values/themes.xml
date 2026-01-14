@@ -36,5 +36,14 @@
         <item name="colorOnSurface">@color/md_theme_light_onSurface</item>
         <item name="colorOnSurfaceVariant">@color/md_theme_light_onSurfaceVariant</item>
 
+        <!-- Custom MaterialSwitch style with checked icon -->
+        <item name="materialSwitchStyle">@style/Widget.SpatialFlow.Switch</item>
+    </style>
+
+    <!-- Custom MaterialSwitch with checked icon and dynamic colors -->
+    <style name="Widget.SpatialFlow.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="thumbIcon">@drawable/switch_thumb_icon_selector</item>
+        <item name="thumbIconTint">@color/switch_thumb_icon_color</item>
+        <item name="useMaterialThemeColors">true</item>
     </style>
 </resources>

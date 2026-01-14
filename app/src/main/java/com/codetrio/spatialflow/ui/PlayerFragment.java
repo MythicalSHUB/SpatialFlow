@@ -1,5 +1,6 @@
 package com.codetrio.spatialflow.ui;
 
+import android.annotation.SuppressLint;
 import android.Manifest;
 import android.content.ComponentName;
 import android.content.Context;
@@ -22,32 +23,67 @@ import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.constraintlayout.widget.ConstraintLayout;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
+import androidx.interpolator.view.animation.FastOutSlowInInterpolator;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.palette.graphics.Palette;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.transition.TransitionManager;
 
+import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
+import android.os.Vibrator;
+import android.os.Build;
+import android.os.VibrationEffect;
+import android.animation.ValueAnimator;
 
 import com.arthenica.ffmpegkit.FFmpegKit;
-import com.codetrio.spatialflow.R;
-import com.codetrio.spatialflow.service.AudioPlaybackService;
-import com.codetrio.spatialflow.util.AudioFileManager;
-import com.codetrio.spatialflow.util.FFmpegCommandBuilder;
-import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel;
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.transition.Transition;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.slider.Slider;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textview.MaterialTextView;
+import com.google.android.material.transition.MaterialContainerTransform;
+import com.google.android.material.color.MaterialColors;
+
+import com.codetrio.spatialflow.MainActivity;
+import com.codetrio.spatialflow.R;
+import com.codetrio.spatialflow.model.SongItem;
+import com.codetrio.spatialflow.service.AudioPlaybackService;
+import com.codetrio.spatialflow.ui.adapter.SongLibraryAdapter;
+import com.codetrio.spatialflow.ui.custom.AnimatedMeshGradientView;
+import com.codetrio.spatialflow.util.AudioFileManager;
+import com.codetrio.spatialflow.util.FFmpegCommandBuilder;
+import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Arrays;
 
 public class PlayerFragment extends Fragment {
@@ -130,22 +166,45 @@ public class PlayerFragment extends Fragment {
     private float peakHighLevel = 0f;
     private int sampleCount = 0;
 
-    // UI Components
+    // UI Components - consolidated player sheet
     private View rootView;
+    private CoordinatorLayout coordinatorLayout;
+    private MaterialCardView playerBottomSheet;
+    private BottomSheetBehavior<MaterialCardView> bottomSheetBehavior;
+    private AnimatedMeshGradientView gradientBackground;
+    private ConstraintLayout miniPlayerContent;
+    private ConstraintLayout fullPlayerContent;
+    private MaterialCardView cardAlbumArt;
     private ImageView ivAlbumArt;
     private MaterialTextView tvSongName;
+    private MaterialTextView tvArtistName;
     private MaterialTextView tvCurrentTime;
     private MaterialTextView tvTotalTime;
+    private MaterialTextView tvNowPlaying;
+    private MaterialTextView tvLibrarySongCount;
     private Slider seekBar;
-    private LinearProgressIndicator waveProgress;
     private MaterialButton btnPlayPauseToggle;
-    private MaterialButton btnChangeSong;
-    private MaterialButton btnSavePreset;
-    private MaterialButton btnRewind30, btnForward30;
-    private ImageView ivVolumeIcon;
-    private Slider volumeSlider;
-    private MaterialTextView tvVolumePercent;
+    private MaterialButton btnPrevious, btnNext;
+    private MaterialButton btnShuffle, btnRepeat, btnFavorite;
+    private MaterialCardView secondaryControlsCard;
     private Chip chipSongHaptics;
+    private LinearProgressIndicator waveProgress;
+
+    // Mini Player components (inside sheet)
+    private ImageView ivMiniAlbumArt;
+    private MaterialTextView tvMiniSongName;
+    private MaterialTextView tvMiniArtistName;
+    private LinearProgressIndicator miniProgress;
+    private MaterialButton btnMiniPlayPause, btnMiniPrevious, btnMiniNext;
+
+    // Song Library
+    private RecyclerView rvSongLibrary;
+    private SongLibraryAdapter songAdapter;
+
+    // Player sheet state
+    private boolean isPlayerExpanded = false;
+    private int[] currentGradientColors = null;
+    private boolean isDarkMode; // Detected dynamically
 
     private Visualizer visualizer;
     private Handler hapticHandler;
@@ -153,6 +212,12 @@ public class PlayerFragment extends Fragment {
     private Runnable progressRunnable;
     private boolean isUserSeeking = false;
     private ActivityResultLauncher<String> requestPermissionLauncher;
+    private OnBackPressedCallback onBackPressedCallback;
+
+    private int[] previousGradientColors;
+    private long currentSongIdInView = -1;
+    private ValueAnimator waveAnimator; // Smooth wave amplitude animator
+    private int currentWaveAmplitude = 0;
 
     // =========================
     // SERVICE CONNECTION
@@ -164,16 +229,7 @@ public class PlayerFragment extends Fragment {
             audioService = binder.getService();
             serviceBound = true;
             viewModel.setAudioService(audioService);
-
-            // Restore haptics state from ViewModel
-            Boolean savedHapticState = viewModel.getIsHapticsEnabled().getValue();
-            if (savedHapticState != null && savedHapticState) {
-                isSongHapticsEnabled = true;
-                initAdvancedHaptics();
-                enableAdvancedHaptics();
-            }
-
-            Log.d(TAG, "Service connected, haptics: " + isSongHapticsEnabled);
+            Log.d(TAG, "Service connected");
         }
 
         @Override
@@ -186,14 +242,31 @@ public class PlayerFragment extends Fragment {
     // =========================
     // LIFECYCLE
     // =========================
-    @Nullable
-    @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
         rootView = inflater.inflate(R.layout.fragment_player, container, false);
         viewModel = new ViewModelProvider(requireActivity()).get(PlayerSharedViewModel.class);
 
+        // Detect Theme Immediately
+        int nightModeFlags = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        isDarkMode = nightModeFlags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+        // Intercept back-press to collapse player
+        onBackPressedCallback = new OnBackPressedCallback(false) {
+            @Override
+            public void handleOnBackPressed() {
+                if (bottomSheetBehavior != null
+                        && bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
+                    collapsePlayer();
+                }
+            }
+        };
+        requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), onBackPressedCallback);
+
         setupPermissionLauncher();
         initViews(rootView);
+        setupSwipeGesture();
         initHapticsSystem();
         setupObservers();
         setupListeners();
@@ -203,45 +276,70 @@ public class PlayerFragment extends Fragment {
         requireContext().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
 
         tvSongName.setSelected(true);
+
+        // Apply initial dynamic calibration (handles "No Song Selected" state)
+        // Calling unconditionally to ensure proper Light/Dark mode start
+        applyMaterialDynamicCalibration();
+
         return rootView;
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        if (visualizer != null) {
+            visualizer.setEnabled(true);
+        }
+        updateSystemBars();
 
-        // Restore haptics state
-        Boolean savedHapticState = viewModel.getIsHapticsEnabled().getValue();
-        if (savedHapticState != null) {
-            isSongHapticsEnabled = savedHapticState;
-            if (chipSongHaptics != null) {
-                chipSongHaptics.setChecked(isSongHapticsEnabled);
+        // Restore mini player visibility if a song is playing or was played
+        if (viewModel != null && viewModel.getCurrentSong().getValue() != null) {
+            if (bottomSheetBehavior != null && bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_HIDDEN) {
+                bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
             }
         }
 
-        // Re-enable visualizer if haptics were on
-        if (isSongHapticsEnabled && visualizer != null && isActuallyPlaying) {
-            try {
-                visualizer.setEnabled(true);
-                Log.d(TAG, "Visualizer re-enabled on resume");
-            } catch (Exception e) {
-                Log.e(TAG, "Error re-enabling visualizer: " + e.getMessage());
-            }
-        }
+        // Re-enable haptics if they were enabled before fragment switch
+        Boolean hapticsEnabled = viewModel != null ? viewModel.getIsHapticsEnabled().getValue() : null;
+        if (hapticsEnabled != null && hapticsEnabled && audioService != null) {
+            // Release old visualizer first to avoid state errors
+            releaseVisualizer();
 
-        // ===== FORCE REFRESH: Always check and restore waves =====
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (waveProgress != null && viewModel != null) {
-                Boolean isPlaying = viewModel.getIsPlaying().getValue();
-                if (isPlaying != null && isPlaying) {
-                    waveProgress.setWaveAmplitude(20);
-                    waveProgress.setWaveSpeed(100);
-                    Log.d(TAG, "Waves force-refreshed on resume");
+            // Small delay to ensure clean state before re-init
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                initAdvancedHaptics();
+                if (visualizer != null) {
+                    try {
+                        visualizer.setEnabled(true);
+                        Log.d(TAG, "Haptics re-enabled on resume");
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed to re-enable haptics: " + e.getMessage());
+                    }
                 }
-            }
-        }, 100); // Small delay ensures view is attached
+            }, 100);
+        }
+
+        Log.d(TAG, "Fragment resumed");
     }
 
+    private void updateSystemBars() {
+        if (getActivity() == null || getContext() == null)
+            return;
+        android.view.Window window = getActivity().getWindow();
+
+        // Detect System Theme using context
+        int nightModeFlags = getContext().getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        this.isDarkMode = nightModeFlags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+        androidx.core.view.WindowInsetsControllerCompat insetsController = androidx.core.view.WindowCompat
+                .getInsetsController(window, window.getDecorView());
+
+        if (insetsController != null) {
+            insetsController.setAppearanceLightStatusBars(!isDarkMode);
+            insetsController.setAppearanceLightNavigationBars(!isDarkMode);
+        }
+    }
 
     @Override
     public void onPause() {
@@ -259,12 +357,9 @@ public class PlayerFragment extends Fragment {
                     if (granted) {
                         Log.d(TAG, "RECORD_AUDIO granted");
                         initAdvancedHaptics();
-                        if (chipSongHaptics.isChecked()) {
-                            enableAdvancedHaptics();
-                        }
+                        enableAdvancedHaptics();
                     } else {
                         Log.w(TAG, "RECORD_AUDIO denied");
-                        chipSongHaptics.setChecked(false);
                         viewModel.setHapticsEnabled(false);
                         showSnackbar("Microphone permission required", Snackbar.LENGTH_LONG);
                     }
@@ -272,17 +367,19 @@ public class PlayerFragment extends Fragment {
     }
 
     private boolean hasRecordPermission() {
-        return ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        return ContextCompat.checkSelfPermission(requireContext(),
+                Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     }
 
     private void requestRecordAudioPermission() {
         if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
             new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                     .setTitle("Microphone Permission")
-                    .setMessage("Music Haptics analyzes frequencies for beat-synced vibrations. Audio is processed locally, never recorded.")
-                    .setPositiveButton("Grant", (d, w) -> requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO))
+                    .setMessage(
+                            "Music Haptics analyzes frequencies for beat-synced vibrations. Audio is processed locally, never recorded.")
+                    .setPositiveButton("Grant",
+                            (d, w) -> requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO))
                     .setNegativeButton("Cancel", (d, w) -> {
-                        chipSongHaptics.setChecked(false);
                         viewModel.setHapticsEnabled(false);
                     })
                     .show();
@@ -295,56 +392,578 @@ public class PlayerFragment extends Fragment {
     // INIT
     // =========================
     private void initViews(View view) {
+        // Main containers
+        coordinatorLayout = view.findViewById(R.id.coordinatorLayout);
+        playerBottomSheet = view.findViewById(R.id.playerBottomSheet);
+        fullPlayerContent = view.findViewById(R.id.fullPlayerContent);
+        miniPlayerContent = view.findViewById(R.id.miniPlayerContent);
+
+        setupBottomSheet();
+
+        gradientBackground = view.findViewById(R.id.gradientBackground);
+
+        // Full Player components
+        cardAlbumArt = view.findViewById(R.id.cardAlbumArt);
         ivAlbumArt = view.findViewById(R.id.ivAlbumArt);
         tvSongName = view.findViewById(R.id.tvSongName);
+        tvArtistName = view.findViewById(R.id.tvArtistName);
+        tvNowPlaying = view.findViewById(R.id.tvNowPlaying);
         tvCurrentTime = view.findViewById(R.id.tvCurrentTime);
         tvTotalTime = view.findViewById(R.id.tvTotalTime);
+        tvLibrarySongCount = view.findViewById(R.id.tvLibrarySongCount);
         seekBar = view.findViewById(R.id.seekBar);
-        waveProgress = view.findViewById(R.id.waveProgress);
 
         btnPlayPauseToggle = view.findViewById(R.id.btnPlayPauseToggle);
-        btnChangeSong = view.findViewById(R.id.btnChangeSong);
-        btnSavePreset = view.findViewById(R.id.btnSavePreset);
-        btnRewind30 = view.findViewById(R.id.btnRewind30);
-        btnForward30 = view.findViewById(R.id.btnForward30);
+        btnPrevious = view.findViewById(R.id.btnPrevious);
+        btnNext = view.findViewById(R.id.btnNext);
 
-        ivVolumeIcon = view.findViewById(R.id.ivVolumeIcon);
-        volumeSlider = view.findViewById(R.id.volumeSlider);
-        tvVolumePercent = view.findViewById(R.id.tvVolumePercent);
+        // Secondary controls (shuffle, repeat, favorite)
+        btnShuffle = view.findViewById(R.id.btnShuffle);
+        btnRepeat = view.findViewById(R.id.btnRepeat);
+        btnFavorite = view.findViewById(R.id.btnFavorite);
+        secondaryControlsCard = view.findViewById(R.id.secondaryControls);
 
         chipSongHaptics = view.findViewById(R.id.chipSongHaptics);
+        waveProgress = view.findViewById(R.id.waveProgress);
+
+        // Mini Player components (re-mapped to new IDs inside sheet)
+        ivMiniAlbumArt = view.findViewById(R.id.ivMiniAlbumArt);
+        tvMiniSongName = view.findViewById(R.id.tvMiniSongName);
+        tvMiniArtistName = view.findViewById(R.id.tvMiniArtistName);
+        miniProgress = view.findViewById(R.id.miniProgress);
+        btnMiniPlayPause = view.findViewById(R.id.btnMiniPlayPause);
+        btnMiniPrevious = view.findViewById(R.id.btnMiniPrevious);
+        btnMiniNext = view.findViewById(R.id.btnMiniNext);
+
+        // Song Library
+        rvSongLibrary = view.findViewById(R.id.rvSongLibrary);
+        setupSongLibrary();
+
+        // Handle Window Insets for Edge-to-Edge
+        View libraryContent = view.findViewById(R.id.libraryContent);
+        if (libraryContent != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(libraryContent, (v, windowInsets) -> {
+                Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                v.setPadding(v.getPaddingLeft(), insets.top, v.getPaddingRight(), v.getPaddingBottom());
+                return windowInsets;
+            });
+        }
+
+        if (fullPlayerContent != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(fullPlayerContent, (v, windowInsets) -> {
+                Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                v.setPadding(v.getPaddingLeft(), insets.top, v.getPaddingRight(), v.getPaddingBottom());
+                return windowInsets;
+            });
+        }
 
         progressHandler = new Handler(Looper.getMainLooper());
+    }
+
+    private void setupSongLibrary() {
+        songAdapter = new SongLibraryAdapter((song, position) -> {
+            viewModel.playSongAtIndex(position);
+            expandPlayer();
+        });
+
+        rvSongLibrary.setLayoutManager(new LinearLayoutManager(getContext()));
+        rvSongLibrary.setAdapter(songAdapter);
+
+        loadSongLibrary();
+    }
+
+    private void setupBottomSheet() {
+        if (playerBottomSheet == null)
+            return;
+
+        bottomSheetBehavior = BottomSheetBehavior.from(playerBottomSheet);
+        bottomSheetBehavior.setHideable(false); // Restrict swipe down from mini
+        bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+
+        // Peek height = Mini Player (80dp) + BottomNav (80dp) + bottom margin (8dp)
+        int navHeight = (int) (80 * getResources().getDisplayMetrics().density);
+        int miniHeight = (int) (80 * getResources().getDisplayMetrics().density);
+        int margin = (int) (8 * getResources().getDisplayMetrics().density);
+        bottomSheetBehavior.setPeekHeight(navHeight + miniHeight + margin);
+
+        bottomSheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+            @Override
+            public void onStateChanged(@NonNull View bottomSheet, int newState) {
+                isPlayerExpanded = (newState == BottomSheetBehavior.STATE_EXPANDED);
+                if (onBackPressedCallback != null) {
+                    onBackPressedCallback.setEnabled(isPlayerExpanded);
+                }
+
+                if (newState == BottomSheetBehavior.STATE_EXPANDED) {
+                    if (getActivity() instanceof MainActivity) {
+                        ((MainActivity) getActivity()).setBottomNavVisibility(false);
+                    }
+                } else if (newState == BottomSheetBehavior.STATE_COLLAPSED) {
+                    if (getActivity() instanceof MainActivity) {
+                        ((MainActivity) getActivity()).setBottomNavVisibility(true);
+                    }
+                    // Reset transforms when collapsed
+                    if (cardAlbumArt != null) {
+                        cardAlbumArt.setScaleX(1.0f);
+                        cardAlbumArt.setScaleY(1.0f);
+                        cardAlbumArt.setTranslationX(0f);
+                        cardAlbumArt.setTranslationY(0f);
+                    }
+                    if (miniPlayerContent != null) {
+                        miniPlayerContent.setAlpha(1.0f);
+                        miniPlayerContent.setVisibility(View.VISIBLE);
+                    }
+                    if (playerBottomSheet != null) {
+                        // Reset to capsule look
+                        playerBottomSheet.setRadius(12 * getResources().getDisplayMetrics().density);
+                        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) playerBottomSheet
+                                .getLayoutParams();
+                        int margin = (int) (8 * getResources().getDisplayMetrics().density);
+                        lp.setMargins(0, 0, 0, margin);
+                        playerBottomSheet.setLayoutParams(lp);
+                    }
+                }
+            }
+
+            @Override
+            public void onSlide(@NonNull View bottomSheet, float slideOffset) {
+                // 1. Capsule to Full-Screen Morph (Margins and Corners)
+                float density = getResources().getDisplayMetrics().density;
+                float currentBottomMargin = 8 * (1.0f - slideOffset) * density;
+                float currentRadius = (12 - (12 * slideOffset)) * density;
+
+                if (playerBottomSheet.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) playerBottomSheet
+                            .getLayoutParams();
+                    lp.setMargins(0, 0, 0, (int) currentBottomMargin);
+                    playerBottomSheet.setLayoutParams(lp);
+                }
+                playerBottomSheet.setRadius(currentRadius);
+
+                // 2. Alpha Cross-Fade for main containers
+                // Mini content fades out almost immediately to make room for growing arc
+                float miniAlpha = 1.0f - (slideOffset * 5.0f); // VERY fast fade
+                miniPlayerContent.setAlpha(Math.max(0f, miniAlpha));
+                miniPlayerContent.setVisibility(miniAlpha > 0.01f ? View.VISIBLE : View.GONE);
+
+                // Full content fades in softly
+                float fullAlpha = (slideOffset - 0.15f) * 1.5f;
+                fullPlayerContent.setAlpha(Math.max(0f, fullAlpha));
+                fullPlayerContent.setVisibility(fullAlpha > 0.05f ? View.VISIBLE : View.GONE);
+
+                // 3. "Premium Growth" Transform for Album Art
+                if (ivMiniAlbumArt != null && cardAlbumArt != null) {
+                    // Full Art target is its center layout position.
+                    // We calculate where ivMiniAlbumArt is relative to the sheet.
+
+                    float miniSize = ivMiniAlbumArt.getWidth();
+                    float fullSize = cardAlbumArt.getWidth();
+                    if (fullSize <= 0)
+                        fullSize = (int) (320 * getResources().getDisplayMetrics().density); // Est.
+
+                    float startScale = miniSize / fullSize;
+
+                    // Center-based position mapping relative to their parent
+                    float miniCenterX = ivMiniAlbumArt.getLeft() + (miniSize / 2f);
+                    float miniCenterY = ivMiniAlbumArt.getTop() + (miniSize / 2f);
+                    float fullCenterX = cardAlbumArt.getLeft() + (fullSize / 2f);
+                    float fullCenterY = cardAlbumArt.getTop() + (fullSize / 2f);
+
+                    float startX = miniCenterX - fullCenterX;
+                    float startY = miniCenterY - fullCenterY;
+
+                    float currentScale = startScale + (slideOffset * (1.0f - startScale));
+                    float currentX = startX * (1.0f - slideOffset);
+                    float currentY = startY * (1.0f - slideOffset);
+
+                    cardAlbumArt.setScaleX(currentScale);
+                    cardAlbumArt.setScaleY(currentScale);
+                    cardAlbumArt.setTranslationX(currentX);
+                    cardAlbumArt.setTranslationY(currentY);
+
+                    // Also animate the corner radius of the album art card
+                    float artCorner = (12 + (20 * slideOffset)) * density;
+                    cardAlbumArt.setRadius(artCorner);
+                    cardAlbumArt.setAlpha(1.0f);
+                }
+
+                // 4. Mesh Background Parallax/Scale
+                if (gradientBackground != null) {
+                    float bgScale = 1.0f + (slideOffset * 0.15f);
+                    gradientBackground.setScaleX(bgScale);
+                    gradientBackground.setScaleY(bgScale);
+                    gradientBackground.setAlpha(0.7f + (slideOffset * 0.3f));
+                }
+
+                // 4. Smooth BottomNav slide
+                if (getActivity() instanceof MainActivity) {
+                    MainActivity main = (MainActivity) getActivity();
+                    View navView = main.findViewById(R.id.nav_view);
+                    if (navView != null) {
+                        float translationY = slideOffset * (navView.getHeight() + 100);
+                        main.setBottomNavTranslation(translationY);
+                    }
+                }
+            }
+        });
+
+        // Tap mini player to expand
+        miniPlayerContent.setOnClickListener(v -> expandPlayer());
+    }
+
+    private void expandPlayer() {
+        if (bottomSheetBehavior != null) {
+            bottomSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        }
+    }
+
+    private void collapsePlayer() {
+        if (bottomSheetBehavior != null) {
+            bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private void setupSwipeGesture() {
+        if (fullPlayerContent == null)
+            return;
+
+        android.view.GestureDetector gestureDetector = new android.view.GestureDetector(
+                getContext(),
+                new android.view.GestureDetector.SimpleOnGestureListener() {
+                    private static final int SWIPE_THRESHOLD = 100;
+                    private static final int SWIPE_VELOCITY_THRESHOLD = 100;
+
+                    @Override
+                    public boolean onFling(android.view.MotionEvent e1, android.view.MotionEvent e2,
+                            float velocityX, float velocityY) {
+                        if (e1 == null || e2 == null)
+                            return false;
+
+                        float diffY = e2.getY() - e1.getY();
+                        if (diffY > SWIPE_THRESHOLD && Math.abs(velocityY) > SWIPE_VELOCITY_THRESHOLD) {
+                            if (isPlayerExpanded) {
+                                collapsePlayer();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                });
+
+        fullPlayerContent.setOnTouchListener((v, event) -> {
+            gestureDetector.onTouchEvent(event);
+            return true;
+        });
+    }
+
+    // =========================
+    // ANIMATED GRADIENT METHODS (UPDATED!)
+    // =========================
+
+    /**
+     * Extract dominant colors from album art and create Apple Music-style gradient.
+     * Now applies ANIMATED gradients to all three components.
+     */
+    private void extractGradientFromAlbumArt(Uri artUri) {
+        if (artUri == null || gradientBackground == null || getContext() == null)
+            return;
+
+        Glide.with(this)
+                .asBitmap()
+                .load(artUri)
+                .into(new CustomTarget<Bitmap>() {
+                    @Override
+                    public void onResourceReady(@NonNull Bitmap bitmap,
+                            @Nullable Transition<? super Bitmap> transition) {
+                        Palette.from(bitmap).generate(palette -> {
+                            if (palette == null || getContext() == null)
+                                return;
+
+                            // System Theme Check
+                            int nightModeFlags = getContext().getResources().getConfiguration().uiMode
+                                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+                            PlayerFragment.this.isDarkMode = nightModeFlags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+                            // Comprehensive Palette Extraction
+                            int vibrant = palette.getVibrantColor(0xFF1a1a2e);
+                            int darkVibrant = palette.getDarkVibrantColor(0xFF16213e);
+                            int lightVibrant = palette.getLightVibrantColor(vibrant);
+                            int muted = palette.getMutedColor(0xFF0f0f23);
+                            int darkMuted = palette.getDarkMutedColor(0xFF0f0f23);
+                            int lightMuted = palette.getLightMutedColor(muted);
+                            int dominant = palette.getDominantColor(0xFF000000);
+
+                            // 1. Mesh Gradient Background
+                            int[] colors;
+                            if (isDarkMode) {
+                                colors = new int[] {
+                                        darkenColor(vibrant, 0.85f),
+                                        darkenColor(darkVibrant, 0.8f),
+                                        darkenColor(muted, 0.7f),
+                                };
+                            } else {
+                                // Light Mode: Use "Bright Colors" as requested
+                                // We use 30% lightening to keep them vibrant but airy
+                                colors = new int[] {
+                                        lightenColor(vibrant, 0.3f),
+                                        lightenColor(lightVibrant, 0.2f),
+                                        lightenColor(vibrant, 0.4f), // Mix in another vibrant shade
+                                };
+                            }
+                            gradientBackground.setColors(colors);
+                            gradientBackground.setIsDarkMode(isDarkMode);
+
+                            // 2. Text and Icon Color Logic
+                            int primaryTextColor = isDarkMode ? android.graphics.Color.WHITE
+                                    : 0xE6000000; // 90% black for premium look
+                            int secondaryTextColor = isDarkMode ? 0xB3FFFFFF : 0x99000000; // 60% black
+
+                            if (tvSongName != null)
+                                tvSongName.setTextColor(primaryTextColor);
+                            if (tvArtistName != null)
+                                tvArtistName.setTextColor(secondaryTextColor);
+                            if (tvNowPlaying != null)
+                                tvNowPlaying.setTextColor(primaryTextColor);
+                            if (tvCurrentTime != null)
+                                tvCurrentTime.setTextColor(secondaryTextColor);
+                            if (tvTotalTime != null)
+                                tvTotalTime.setTextColor(secondaryTextColor);
+
+                            // 3. Main Controls (High Contrast Vibrant)
+                            if (btnPlayPauseToggle != null) {
+                                btnPlayPauseToggle
+                                        .setBackgroundTintList(android.content.res.ColorStateList.valueOf(vibrant));
+                                double luminance = getLuminance(vibrant);
+                                int iconTint = luminance > 0.5 ? android.graphics.Color.BLACK
+                                        : android.graphics.Color.WHITE;
+                                btnPlayPauseToggle.setIconTint(android.content.res.ColorStateList.valueOf(iconTint));
+                            }
+
+                            // Adjust skip buttons for readability - punchier in light mode
+                            int skipBgColor = isDarkMode ? (lightVibrant & 0x00FFFFFF) | 0x4D000000
+                                    : (darkVibrant & 0x00FFFFFF) | 0x26000000; // 15% opacity for better contrast
+                            int skipIconTint = isDarkMode ? android.graphics.Color.WHITE : 0xCC000000; // 80% black
+
+                            if (btnPrevious != null) {
+                                btnPrevious
+                                        .setBackgroundTintList(android.content.res.ColorStateList.valueOf(skipBgColor));
+                                btnPrevious.setIconTint(android.content.res.ColorStateList.valueOf(skipIconTint));
+                            }
+                            if (btnNext != null) {
+                                btnNext.setBackgroundTintList(android.content.res.ColorStateList.valueOf(skipBgColor));
+                                btnNext.setIconTint(android.content.res.ColorStateList.valueOf(skipIconTint));
+                            }
+
+                            // 4. Secondary Controls Card (Glass Effect)
+                            if (secondaryControlsCard != null) {
+                                int cardColor = isDarkMode ? (darkMuted & 0x00FFFFFF) | 0x80000000
+                                        : (lightMuted & 0x00FFFFFF) | 0x26000000; // Softer frosted glass
+                                secondaryControlsCard.setCardBackgroundColor(cardColor);
+                            }
+
+                            int secondaryIconColor = isDarkMode ? android.graphics.Color.WHITE
+                                    : 0xCC000000;
+                            android.content.res.ColorStateList secondaryIconTint = android.content.res.ColorStateList
+                                    .valueOf(secondaryIconColor);
+                            if (btnShuffle != null)
+                                btnShuffle.setIconTint(secondaryIconTint);
+                            if (btnRepeat != null)
+                                btnRepeat.setIconTint(secondaryIconTint);
+                            if (btnFavorite != null)
+                                btnFavorite.setIconTint(secondaryIconTint);
+
+                            // Music Haptics Chip (Glass Style like Secondary Controls)
+                            if (chipSongHaptics != null) {
+                                int chipBgColor = isDarkMode ? (darkMuted & 0x00FFFFFF) | 0x80000000
+                                        : (lightMuted & 0x00FFFFFF) | 0x26000000;
+
+                                chipSongHaptics.setChipBackgroundColor(
+                                        android.content.res.ColorStateList.valueOf(chipBgColor));
+                                chipSongHaptics.setTextColor(secondaryIconTint);
+                                chipSongHaptics.setChipStrokeWidth(0);
+
+                                // Keep Dynamic Icon as requested before
+                                chipSongHaptics.setChipIconTint(android.content.res.ColorStateList.valueOf(vibrant));
+                                chipSongHaptics.setCheckedIconTint(android.content.res.ColorStateList.valueOf(vibrant));
+                                chipSongHaptics.setAlpha(1.0f); // Reset transparency to handle background properly
+                            }
+
+                            // 5. Mini Player (Sync with Theme)
+                            if (playerBottomSheet != null) {
+                                // For light mode, we mix with a bit more darkness to ensure WHITE controls Pop
+                                int miniBg = isDarkMode ? (darkVibrant & 0x00FFFFFF) | 0xFF000000
+                                        : (lightVibrant & 0x00FFFFFF) | 0xFFE0E0E0; // Off-white for contrast
+                                playerBottomSheet.setCardBackgroundColor(miniBg);
+                            }
+
+                            if (tvMiniSongName != null)
+                                tvMiniSongName.setTextColor(
+                                        isDarkMode ? android.graphics.Color.WHITE : android.graphics.Color.BLACK);
+                            if (tvMiniArtistName != null)
+                                tvMiniArtistName.setTextColor(isDarkMode ? 0xB3FFFFFF : 0x99000000);
+
+                            if (btnMiniPlayPause != null) {
+                                btnMiniPlayPause.setBackgroundTintList(
+                                        android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
+                                btnMiniPlayPause.setIconTint(
+                                        android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE));
+                            }
+
+                            if (btnMiniPrevious != null)
+                                btnMiniPrevious.setIconTint(
+                                        android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE));
+                            if (btnMiniNext != null)
+                                btnMiniNext.setIconTint(
+                                        android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE));
+
+                            if (miniProgress != null) {
+                                miniProgress.setIndicatorColor(android.graphics.Color.WHITE);
+                                miniProgress.setTrackColor(0x33FFFFFF); // 20% White
+                            }
+
+                            // 6. Progress Indicators
+                            if (waveProgress != null) {
+                                int waveIndicator = isDarkMode ? (vibrant & 0x00FFFFFF) | 0xB3000000
+                                        : (vibrant & 0x00FFFFFF) | 0xCC000000;
+                                waveProgress.setIndicatorColor(waveIndicator);
+                                waveProgress.setTrackColor(isDarkMode ? 0x33FFFFFF : 0x1A000000);
+                            }
+
+                            if (seekBar != null) {
+                                seekBar.setThumbTintList(android.content.res.ColorStateList.valueOf(vibrant));
+                                seekBar.setTrackActiveTintList(android.content.res.ColorStateList.valueOf(vibrant));
+                                seekBar.setTrackInactiveTintList(android.content.res.ColorStateList.valueOf(
+                                        isDarkMode ? 0x33FFFFFF : 0x26000000));
+                            }
+                        });
+                    }
+
+                    private double getLuminance(int color) {
+                        return (0.299 * android.graphics.Color.red(color)
+                                + 0.587 * android.graphics.Color.green(color)
+                                + 0.114 * android.graphics.Color.blue(color)) / 255;
+                    }
+
+                    private int lightenColor(int color, float factor) {
+                        int a = android.graphics.Color.alpha(color);
+                        int r = android.graphics.Color.red(color);
+                        int g = android.graphics.Color.green(color);
+                        int b = android.graphics.Color.blue(color);
+
+                        r = (int) (r + (255 - r) * factor);
+                        g = (int) (g + (255 - g) * factor);
+                        b = (int) (b + (255 - b) * factor);
+
+                        return android.graphics.Color.argb(a, r, g, b);
+                    }
+
+                    @Override
+                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                    }
+
+                    @Override
+                    public void onLoadFailed(@Nullable android.graphics.drawable.Drawable errorDrawable) {
+                        applyMaterialDynamicCalibration();
+                    }
+                });
+    }
+
+    private int darkenColor(int color, float factor) {
+        int a = android.graphics.Color.alpha(color);
+        int r = (int) (android.graphics.Color.red(color) * factor);
+        int g = (int) (android.graphics.Color.green(color) * factor);
+        int b = (int) (android.graphics.Color.blue(color) * factor);
+        return android.graphics.Color.argb(a, r, g, b);
+    }
+
+    private void loadSongLibrary() {
+        List<SongItem> songs = new ArrayList<>();
+
+        String[] projection = {
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM_ID,
+                MediaStore.Audio.Media.DATA,
+                MediaStore.Audio.Media.DATE_ADDED
+        };
+
+        String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+        String sortOrder = MediaStore.Audio.Media.TITLE + " ASC";
+
+        try (Cursor cursor = requireContext().getContentResolver().query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                null,
+                sortOrder)) {
+
+            if (cursor != null) {
+                int idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
+                int titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
+                int artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
+                int albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID);
+                int dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
+                int dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED);
+
+                while (cursor.moveToNext()) {
+                    long id = cursor.getLong(idColumn);
+                    String title = cursor.getString(titleColumn);
+                    String artist = cursor.getString(artistColumn);
+                    long albumId = cursor.getLong(albumIdColumn);
+                    String path = cursor.getString(dataColumn);
+                    long dateAdded = cursor.getLong(dateColumn);
+
+                    songs.add(new SongItem(id, title, artist, albumId, path, dateAdded));
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading songs: " + e.getMessage(), e);
+        }
+
+        viewModel.setSongList(songs);
+        songAdapter.submitList(songs);
+
+        if (tvLibrarySongCount != null) {
+            tvLibrarySongCount.setText(songs.size() + " songs");
+        }
+
+        Log.d(TAG, "Loaded " + songs.size() + " songs from library");
+    }
+
+    /**
+     * Check if device has haptic feedback capability.
+     */
+    private boolean hasHapticsCapability() {
+        if (getContext() == null)
+            return false;
+        Vibrator vibrator = (Vibrator) getContext().getSystemService(Context.VIBRATOR_SERVICE);
+        if (vibrator == null)
+            return false;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return vibrator.hasVibrator() && vibrator.hasAmplitudeControl();
+        }
+        return vibrator.hasVibrator();
     }
 
     private void initHapticsSystem() {
         hapticHandler = new Handler();
 
-        // Restore saved state from ViewModel
-        Boolean savedHapticState = viewModel.getIsHapticsEnabled().getValue();
-        if (savedHapticState != null) {
-            isSongHapticsEnabled = savedHapticState;
-            chipSongHaptics.setChecked(isSongHapticsEnabled);
-        } else {
-            chipSongHaptics.setChecked(false);
+        // Check device haptics capability first
+        boolean hasHaptics = hasHapticsCapability();
+        if (!hasHaptics) {
+            // Device doesn't support haptics
             isSongHapticsEnabled = false;
+            viewModel.setHapticsEnabled(false);
+            Log.d(TAG, "Device doesn't support haptic feedback");
+            return;
         }
 
-        updateChipIcon();
+        isSongHapticsEnabled = viewModel.getIsHapticsEnabled().getValue() != null
+                && viewModel.getIsHapticsEnabled().getValue();
 
-        chipSongHaptics.setOnCheckedChangeListener((chip, checked) -> {
-            isSongHapticsEnabled = checked;
-            viewModel.setHapticsEnabled(checked);
-            updateChipIcon();
-
-            if (checked) {
-                enableAdvancedHaptics();
-            } else {
-                disableAdvancedHaptics();
-            }
-        });
-
-        // Initialize history buffers
         Arrays.fill(subBassHistory, 0f);
         Arrays.fill(bassHistory, 0f);
         Arrays.fill(lowMidHistory, 0f);
@@ -353,18 +972,10 @@ public class PlayerFragment extends Fragment {
         Arrays.fill(highHistory, 0f);
         Arrays.fill(beatIntervals, 500f);
 
-        Log.d(TAG, "Effects-aware haptics initialized, state: " + isSongHapticsEnabled);
+        Log.d(TAG, "Effects-aware haptics initialized, state: " + isSongHapticsEnabled + ", device capable: "
+                + hasHaptics);
     }
 
-    private void updateChipIcon() {
-        if (chipSongHaptics == null) return;
-        chipSongHaptics.setChipIcon(getResources().getDrawable(
-                isSongHapticsEnabled ? R.drawable.ic_vibration : R.drawable.ic_vibration_off, null));
-    }
-
-    // =========================
-    // PROGRESS ANIMATION
-    // =========================
     private void startProgressLoop() {
         progressRunnable = new Runnable() {
             @Override
@@ -374,25 +985,26 @@ public class PlayerFragment extends Fragment {
                     int total = audioService.getDuration();
 
                     if (total > 0) {
-                        // Update wave progress (0-1000 scale)
                         int waveValue = (int) ((current * 1000L) / total);
+                        if (miniProgress != null) {
+                            miniProgress.setProgressCompat(waveValue, true);
+                        }
                         if (waveProgress != null) {
                             waveProgress.setProgressCompat(waveValue, true);
                         }
 
-                        // Sync seekbar
-                        if (seekBar != null) {
-                            seekBar.setValue(current);
+                        if (seekBar != null && total > 0) {
+                            // Clamp value to prevent crash when position exceeds duration slightly
+                            int clampedValue = Math.min(current, total);
+                            seekBar.setValue(clampedValue);
                         }
 
-                        // Update time
                         if (tvCurrentTime != null) {
                             tvCurrentTime.setText(formatTime(current));
                         }
                     }
                 }
 
-                // ~60 FPS
                 progressHandler.postDelayed(this, 16);
             }
         };
@@ -400,9 +1012,6 @@ public class PlayerFragment extends Fragment {
         progressHandler.post(progressRunnable);
     }
 
-    // =========================
-    // VISUALIZER INIT
-    // =========================
     private void initAdvancedHaptics() {
         if (!hasRecordPermission() || audioService == null) {
             Log.w(TAG, "Cannot init - no permission or service");
@@ -426,7 +1035,8 @@ public class PlayerFragment extends Fragment {
             visualizer.setDataCaptureListener(
                     new Visualizer.OnDataCaptureListener() {
                         @Override
-                        public void onWaveFormDataCapture(Visualizer v, byte[] waveform, int rate) {}
+                        public void onWaveFormDataCapture(Visualizer v, byte[] waveform, int rate) {
+                        }
 
                         @Override
                         public void onFftDataCapture(Visualizer v, byte[] fft, int rate) {
@@ -438,8 +1048,7 @@ public class PlayerFragment extends Fragment {
                     },
                     Visualizer.getMaxCaptureRate(),
                     false,
-                    true
-            );
+                    true);
 
             Log.d(TAG, "Visualizer created with effects-aware processing");
         } catch (Exception e) {
@@ -447,11 +1056,9 @@ public class PlayerFragment extends Fragment {
         }
     }
 
-    // =========================
-    // EFFECTS-AWARE BEAT DETECTION
-    // =========================
     private void processEffectsAwareBeatDetection(byte[] fft) {
-        if (!isActuallyPlaying) return;
+        if (!isActuallyPlaying)
+            return;
 
         float subBassSum = 0f, bassSum = 0f, lowMidSum = 0f;
         float midSum = 0f, highMidSum = 0f, highSum = 0f;
@@ -529,14 +1136,20 @@ public class PlayerFragment extends Fragment {
         avgMidLevel = (avgMidLevel * Math.min(sampleCount - 1, 100) + midEnergy) / Math.min(sampleCount, 101);
         avgHighLevel = (avgHighLevel * Math.min(sampleCount - 1, 100) + highEnergy) / Math.min(sampleCount, 101);
 
-        if (bassEnergy > peakBassLevel) peakBassLevel = bassEnergy;
-        else peakBassLevel *= 0.999f;
+        if (bassEnergy > peakBassLevel)
+            peakBassLevel = bassEnergy;
+        else
+            peakBassLevel *= 0.999f;
 
-        if (midEnergy > peakMidLevel) peakMidLevel = midEnergy;
-        else peakMidLevel *= 0.999f;
+        if (midEnergy > peakMidLevel)
+            peakMidLevel = midEnergy;
+        else
+            peakMidLevel *= 0.999f;
 
-        if (highEnergy > peakHighLevel) peakHighLevel = highEnergy;
-        else peakHighLevel *= 0.999f;
+        if (highEnergy > peakHighLevel)
+            peakHighLevel = highEnergy;
+        else
+            peakHighLevel *= 0.999f;
 
         long now = System.currentTimeMillis();
 
@@ -603,7 +1216,8 @@ public class PlayerFragment extends Fragment {
 
     private float calculateAverage(float[] array) {
         float sum = 0f;
-        for (float value : array) sum += value;
+        for (float value : array)
+            sum += value;
         return sum / array.length;
     }
 
@@ -611,11 +1225,9 @@ public class PlayerFragment extends Fragment {
         KICK, SNARE, HIHAT
     }
 
-    // =========================
-    // HAPTIC TRIGGERING
-    // =========================
     private void triggerHaptic(float intensity, HapticType type) {
-        if (!isActuallyPlaying || rootView == null || !rootView.isAttachedToWindow()) return;
+        if (!isActuallyPlaying || rootView == null || !rootView.isAttachedToWindow())
+            return;
 
         int hapticConstant;
 
@@ -637,14 +1249,14 @@ public class PlayerFragment extends Fragment {
                 break;
 
             case SNARE:
-                hapticConstant = intensity > 0.6f ? HAPTIC_CONTEXT_CLICK :
-                        intensity > 0.4f ? HAPTIC_TEXT_HANDLE :
-                                intensity > 0.25f ? HAPTIC_SEGMENT_TICK : HAPTIC_SEGMENT_FREQUENT;
+                hapticConstant = intensity > 0.6f ? HAPTIC_CONTEXT_CLICK
+                        : intensity > 0.4f ? HAPTIC_TEXT_HANDLE
+                                : intensity > 0.25f ? HAPTIC_SEGMENT_TICK : HAPTIC_SEGMENT_FREQUENT;
                 break;
 
             case HIHAT:
-                hapticConstant = intensity > 0.5f ? HAPTIC_SEGMENT_TICK :
-                        intensity > 0.3f ? HAPTIC_SEGMENT_FREQUENT : HAPTIC_LIGHT_TICK;
+                hapticConstant = intensity > 0.5f ? HAPTIC_SEGMENT_TICK
+                        : intensity > 0.3f ? HAPTIC_SEGMENT_FREQUENT : HAPTIC_LIGHT_TICK;
                 break;
 
             default:
@@ -659,83 +1271,101 @@ public class PlayerFragment extends Fragment {
         }
     }
 
-    // =========================
-// OBSERVERS WITH EFFECTS SYNC
-// =========================
     private void setupObservers() {
-        // Playing state observer - controls play/pause button and wave animation
-        // Playing state observer
-        // Playing state observer
         viewModel.getIsPlaying().observe(getViewLifecycleOwner(), playing -> {
             isActuallyPlaying = playing != null && playing;
 
             btnPlayPauseToggle.setIcon(getResources().getDrawable(
                     isActuallyPlaying ? R.drawable.ic_pause : R.drawable.ic_play, null));
 
-            // Control wave animation - MUST call after view is attached
-            // In setupObservers()
+            if (btnMiniPlayPause != null) {
+                btnMiniPlayPause.setIcon(getResources().getDrawable(
+                        isActuallyPlaying ? R.drawable.ic_pause : R.drawable.ic_play, null));
+            }
+
+            // Toggle wave animation based on playback state (smooth transition)
             if (waveProgress != null) {
+                int targetAmplitude = isActuallyPlaying ? 10 : 0;
+                animateWaveAmplitude(targetAmplitude);
                 if (isActuallyPlaying) {
-                    waveProgress.setWaveAmplitude(20);   // THICC waves
-                    waveProgress.setWaveSpeed(100);       // FAST speed
-                } else {
-                    waveProgress.setWaveSpeed(0);
-                    waveProgress.setWaveAmplitude(0);
-                    waveProgress.setProgressCompat(0, false);
+                    waveProgress.setWaveSpeed(200);
                 }
             }
 
-
-            if (visualizer != null) {
-                Boolean hapticsEnabled = viewModel.getIsHapticsEnabled().getValue();
-                if (hapticsEnabled != null && hapticsEnabled) {
-                    try {
-                        visualizer.setEnabled(isActuallyPlaying);
-                        Log.d(TAG, "Visualizer toggled: " + isActuallyPlaying);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error toggling visualizer: " + e.getMessage());
+            // Handle haptics with playback state
+            Boolean hapticsEnabled = viewModel.getIsHapticsEnabled().getValue();
+            if (hapticsEnabled != null && hapticsEnabled) {
+                if (isActuallyPlaying) {
+                    // Playback resumed - ensure visualizer is ready
+                    if (visualizer == null && audioService != null) {
+                        initAdvancedHaptics();
+                    }
+                    if (visualizer != null) {
+                        try {
+                            visualizer.setEnabled(true);
+                            Log.d(TAG, "Visualizer enabled on playback resume");
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error enabling visualizer: " + e.getMessage());
+                            // Visualizer in bad state - release and retry
+                            releaseVisualizer();
+                            initAdvancedHaptics();
+                            if (visualizer != null) {
+                                try {
+                                    visualizer.setEnabled(true);
+                                } catch (Exception ex) {
+                                    Log.e(TAG, "Failed retry: " + ex.getMessage());
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Playback paused - disable but don't release
+                    if (visualizer != null) {
+                        try {
+                            visualizer.setEnabled(false);
+                            Log.d(TAG, "Visualizer disabled on playback pause");
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error disabling visualizer: " + e.getMessage());
+                        }
                     }
                 }
             }
         });
 
-
-
-        // Current position observer - updates seekbar and time display
         viewModel.getCurrentPosition().observe(getViewLifecycleOwner(), position -> {
-            if (position != null && !isUserSeeking) {
-                seekBar.setValue(position);
+            if (position != null && !isUserSeeking && seekBar != null) {
+                // Clamp position to valueTo to prevent IllegalStateException
+                float maxValue = seekBar.getValueTo();
+                int clampedPosition = (int) Math.min(position, maxValue);
+                seekBar.setValue(clampedPosition);
                 tvCurrentTime.setText(formatTime(position));
-            }
-        });
 
-        // Duration observer - sets max values and total time
-        viewModel.getDuration().observe(getViewLifecycleOwner(), duration -> {
-            if (duration != null) {
-                seekBar.setValueTo(duration > 0 ? duration : 100);
-                tvTotalTime.setText(formatTime(duration));
+                // Sync wave progress with playback position
+                if (waveProgress != null && maxValue > 0) {
+                    int waveValue = (int) ((clampedPosition / maxValue) * 1000);
+                    waveProgress.setProgressCompat(waveValue, true);
+                }
 
-                // Set wave progress max (0-1000 scale for smooth animation)
-                if (waveProgress != null) {
-                    waveProgress.setMax(1000);
+                // Sync mini player progress
+                if (miniProgress != null && maxValue > 0) {
+                    int miniValue = (int) ((clampedPosition / maxValue) * 1000);
+                    miniProgress.setProgressCompat(miniValue, true);
                 }
             }
         });
 
-        // Song URI observer - loads metadata and resets states
+        viewModel.getDuration().observe(getViewLifecycleOwner(), duration -> {
+            if (duration != null) {
+                seekBar.setValueTo(duration > 0 ? duration : 100);
+                tvTotalTime.setText(formatTime(duration));
+            }
+        });
+
         viewModel.getSongUri().observe(getViewLifecycleOwner(), uri -> {
             if (uri != null) {
                 loadSongMetadata(uri);
                 resetHapticState();
 
-                // Reset progress indicator to flat
-                if (waveProgress != null) {
-                    waveProgress.setProgressCompat(0, false);
-                    waveProgress.setWaveSpeed((int) 0f);
-                    waveProgress.setWaveAmplitude((int) 0f);
-                }
-
-                // Reinitialize haptics if enabled
                 Boolean hapticsEnabled = viewModel.getIsHapticsEnabled().getValue();
                 if (hapticsEnabled != null && hapticsEnabled) {
                     disableAdvancedHaptics();
@@ -748,44 +1378,138 @@ public class PlayerFragment extends Fragment {
             }
         });
 
-        // ===== EFFECTS OBSERVERS - Modulate haptic intensity =====
-
-        // Bass Boost observer - increases kick drum haptic intensity
         viewModel.getBassBoost().observe(getViewLifecycleOwner(), bassBoost -> {
             if (bassBoost != null) {
-                // Map 0-12dB to 0.7x-1.8x multiplier
                 bassBoostMultiplier = 1.0f + (bassBoost / 12.0f) * 0.8f;
                 bassBoostMultiplier = Math.max(0.7f, Math.min(1.8f, bassBoostMultiplier));
                 Log.d(TAG, String.format("Bass Boost: %d dB → Haptic ×%.2f", bassBoost, bassBoostMultiplier));
             }
         });
 
-        // Loudness Gain observer - amplifies all haptics
         viewModel.getLoudnessGain().observe(getViewLifecycleOwner(), loudness -> {
             if (loudness != null) {
-                // Map 0-10dB to 1.0x-1.5x multiplier
                 loudnessMultiplier = 1.0f + (loudness / 10.0f) * 0.5f;
                 Log.d(TAG, String.format("Loudness: +%d dB → Haptic ×%.2f", loudness, loudnessMultiplier));
             }
         });
 
-        // EQ Band observers - frequency-specific haptic adjustments
         viewModel.getEqBand1().observe(getViewLifecycleOwner(), gain -> updateEqMultipliers());
         viewModel.getEqBand2().observe(getViewLifecycleOwner(), gain -> updateEqMultipliers());
         viewModel.getEqBand3().observe(getViewLifecycleOwner(), gain -> updateEqMultipliers());
         viewModel.getEqBand4().observe(getViewLifecycleOwner(), gain -> updateEqMultipliers());
         viewModel.getEqBand5().observe(getViewLifecycleOwner(), gain -> updateEqMultipliers());
 
-        // Playback Speed observer - adjusts beat timing thresholds
         viewModel.getPlaybackSpeed().observe(getViewLifecycleOwner(), speed -> {
             if (speed != null) {
                 playbackSpeedFactor = speed;
                 Log.d(TAG, String.format("Playback Speed: %.2fx → Timing adjusted", speed));
             }
         });
+
+        viewModel.getCurrentSong().observe(getViewLifecycleOwner(), song -> {
+            if (song != null) {
+                tvSongName.setText(song.title);
+                if (tvArtistName != null) {
+                    tvArtistName.setText(song.artist);
+                }
+
+                if (tvMiniSongName != null) {
+                    tvMiniSongName.setText(song.title);
+                }
+                if (tvMiniArtistName != null) {
+                    tvMiniArtistName.setText(song.artist);
+                }
+
+                Uri artUri = song.getAlbumArtUri();
+                Glide.with(this)
+                        .load(artUri)
+                        .placeholder(R.drawable.default_album_art)
+                        .error(R.drawable.default_album_art)
+                        .centerCrop()
+                        .into(ivAlbumArt);
+
+                if (ivMiniAlbumArt != null) {
+                    Glide.with(this)
+                            .load(artUri)
+                            .placeholder(R.drawable.default_album_art)
+                            .error(R.drawable.default_album_art)
+                            .centerCrop()
+                            .into(ivMiniAlbumArt);
+                }
+
+                extractGradientFromAlbumArt(artUri);
+
+                // Re-apply 8D effect to the new song if it was enabled
+                // (Don't reset 8D state, let it persist across songs)
+                viewModel.triggerEffectsRefresh();
+
+                // Update favorite button for new song
+                updateFavoriteButtonState();
+
+                Log.d(TAG, "Now playing: " + song.title + " by " + song.artist);
+            }
+        });
+
+        viewModel.getShouldPromptEffects().observe(getViewLifecycleOwner(), shouldPrompt -> {
+            if (shouldPrompt != null && shouldPrompt && coordinatorLayout != null) {
+                Snackbar.make(coordinatorLayout, "Apply effects to this song?", Snackbar.LENGTH_LONG)
+                        .setAction("Apply", v -> {
+                            viewModel.applyAllEffects();
+                            showSnackbar("Effects applied!", Snackbar.LENGTH_SHORT);
+                        })
+                        .addCallback(new Snackbar.Callback() {
+                            @Override
+                            public void onDismissed(Snackbar snackbar, int event) {
+                                viewModel.clearEffectsPrompt();
+                            }
+                        })
+                        .show();
+            }
+        });
+
+        // Shuffle state observer
+        viewModel.getIsShuffleEnabled().observe(getViewLifecycleOwner(), shuffleEnabled -> {
+            if (btnShuffle != null) {
+                int tint = (shuffleEnabled != null && shuffleEnabled)
+                        ? ContextCompat.getColor(requireContext(), R.color.purple_200)
+                        : (isDarkMode ? android.graphics.Color.WHITE : 0xCC000000);
+                btnShuffle.setIconTint(android.content.res.ColorStateList.valueOf(tint));
+            }
+        });
+
+        // Repeat mode observer
+        viewModel.getRepeatMode().observe(getViewLifecycleOwner(), mode -> {
+            if (btnRepeat != null && mode != null) {
+                int icon;
+                int tint;
+                switch (mode) {
+                    case PlayerSharedViewModel.REPEAT_ALL:
+                        icon = R.drawable.ic_repeat;
+                        tint = ContextCompat.getColor(requireContext(), R.color.purple_200);
+                        break;
+                    case PlayerSharedViewModel.REPEAT_ONE:
+                        icon = R.drawable.ic_repeat_one;
+                        tint = ContextCompat.getColor(requireContext(), R.color.purple_200);
+                        break;
+                    default: // REPEAT_OFF
+                        icon = R.drawable.ic_repeat;
+                        tint = isDarkMode ? android.graphics.Color.WHITE : 0xCC000000;
+                        break;
+                }
+                btnRepeat.setIcon(ContextCompat.getDrawable(requireContext(), icon));
+                btnRepeat.setIconTint(android.content.res.ColorStateList.valueOf(tint));
+            }
+        });
+
+        // Favorites observer (update icon when favorites change)
+        viewModel.getFavoriteSongIds().observe(getViewLifecycleOwner(), favorites -> {
+            updateFavoriteButtonState();
+            // Update library to show favorite indicators
+            if (songAdapter != null) {
+                songAdapter.setFavorites(favorites);
+            }
+        });
     }
-
-
 
     private void updateEqMultipliers() {
         Integer band1 = viewModel.getEqBand1().getValue();
@@ -815,6 +1539,27 @@ public class PlayerFragment extends Fragment {
                 eqBassMultiplier, eqMidMultiplier, eqHighMultiplier));
     }
 
+    /**
+     * Updates the favorite button icon based on current song's favorite status.
+     */
+    private void updateFavoriteButtonState() {
+        if (btnFavorite == null)
+            return;
+
+        SongItem current = viewModel.getCurrentSong().getValue();
+        if (current == null)
+            return;
+
+        boolean isFav = viewModel.isFavorite(current.id);
+        int icon = isFav ? R.drawable.ic_favorite : R.drawable.ic_favorite_border;
+        int tint = isFav
+                ? ContextCompat.getColor(requireContext(), R.color.purple_200)
+                : (isDarkMode ? android.graphics.Color.WHITE : 0xCC000000);
+
+        btnFavorite.setIcon(ContextCompat.getDrawable(requireContext(), icon));
+        btnFavorite.setIconTint(android.content.res.ColorStateList.valueOf(tint));
+    }
+
     private void resetHapticState() {
         Arrays.fill(subBassHistory, 0f);
         Arrays.fill(bassHistory, 0f);
@@ -835,64 +1580,88 @@ public class PlayerFragment extends Fragment {
         lastBassTime = 0;
         lastSnareTime = 0;
         lastHiHatTime = 0;
+        lastHiHatTime = 0;
         estimatedBPM = 120f;
     }
 
-    // =========================
-    // LISTENERS
-    // =========================
     private void setupListeners() {
         btnPlayPauseToggle.setOnClickListener(v -> {
             Boolean playing = viewModel.getIsPlaying().getValue();
-            if (playing != null && playing) viewModel.pauseAudio();
-            else viewModel.playAudio();
+            if (playing != null && playing)
+                viewModel.pauseAudio();
+            else
+                viewModel.playAudio();
         });
 
-        btnRewind30.setOnClickListener(v -> {
-            if (audioService != null) {
-                int currentPos = audioService.getCurrentPosition();
-                int newPos = Math.max(0, currentPos - 30000);
-                viewModel.seekTo(newPos);
-                showSnackbar("Rewound 30 seconds", Snackbar.LENGTH_SHORT);
-            }
-        });
+        btnPrevious.setOnClickListener(v -> viewModel.playPreviousSong());
+        btnNext.setOnClickListener(v -> viewModel.playNextSong());
 
-        btnForward30.setOnClickListener(v -> {
-            if (audioService != null) {
-                int currentPos = audioService.getCurrentPosition();
-                int duration = audioService.getDuration();
-                int newPos = Math.min(duration, currentPos + 30000);
-                viewModel.seekTo(newPos);
-                showSnackbar("Skipped 30 seconds", Snackbar.LENGTH_SHORT);
-            }
-        });
+        // Shuffle button
+        if (btnShuffle != null) {
+            btnShuffle.setOnClickListener(v -> {
+                viewModel.toggleShuffle();
+            });
+        }
 
-        AudioManager audioManager = (AudioManager) requireContext().getSystemService(Context.AUDIO_SERVICE);
+        // Repeat button
+        if (btnRepeat != null) {
+            btnRepeat.setOnClickListener(v -> {
+                viewModel.cycleRepeatMode();
+            });
+        }
 
-        if (audioManager != null) {
-            int currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-            int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-            float volumePercent = (currentVolume * 100f) / maxVolume;
-
-            int roundedPercent = Math.round(volumePercent);
-            volumeSlider.setValue(roundedPercent);
-            tvVolumePercent.setText(String.format("%d%%", roundedPercent));
-            updateVolumeIcon(roundedPercent);
-
-            volumeSlider.addOnChangeListener((slider, value, fromUser) -> {
-                if (fromUser) {
-                    int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-                    int newVolume = Math.round((value / 100f) * maxVol);
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0);
-
-                    tvVolumePercent.setText(String.format("%d%%", (int) value));
-                    updateVolumeIcon((int) value);
+        // Favorite button
+        if (btnFavorite != null) {
+            btnFavorite.setOnClickListener(v -> {
+                SongItem current = viewModel.getCurrentSong().getValue();
+                if (current != null) {
+                    viewModel.toggleFavorite(current.id);
                 }
             });
         }
 
-        btnChangeSong.setOnClickListener(v -> openSongPicker());
-        btnSavePreset.setOnClickListener(v -> saveAudioWithEffects());
+        // Haptics Chip listener
+        if (chipSongHaptics != null) {
+            boolean hasHaptics = hasHapticsCapability();
+            chipSongHaptics.setEnabled(hasHaptics);
+            chipSongHaptics.setAlpha(hasHaptics ? 1.0f : 0.5f);
+
+            Boolean savedState = viewModel.getIsHapticsEnabled().getValue();
+            chipSongHaptics.setChecked(savedState != null && savedState && hasHaptics);
+
+            chipSongHaptics.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                viewModel.setHapticsEnabled(isChecked);
+                if (isChecked) {
+                    enableAdvancedHaptics();
+                } else {
+                    disableAdvancedHaptics();
+                }
+            });
+        }
+
+        if (btnMiniPlayPause != null) {
+            btnMiniPlayPause.setOnClickListener(v -> {
+                Boolean playing = viewModel.getIsPlaying().getValue();
+                if (playing != null && playing)
+                    viewModel.pauseAudio();
+                else
+                    viewModel.playAudio();
+            });
+        }
+
+        if (btnMiniPrevious != null) {
+            btnMiniPrevious.setOnClickListener(v -> viewModel.playPreviousSong());
+        }
+
+        if (btnMiniNext != null) {
+            btnMiniNext.setOnClickListener(v -> viewModel.playNextSong());
+        }
+
+        if (playerBottomSheet != null) {
+            playerBottomSheet.setOnClickListener(v -> expandPlayer());
+        }
+
+        setupSwipeGesture();
 
         seekBar.addOnChangeListener((slider, value, fromUser) -> {
             if (fromUser && audioService != null) {
@@ -916,25 +1685,29 @@ public class PlayerFragment extends Fragment {
         });
     }
 
-    private void updateVolumeIcon(int volumePercent) {
-        if (ivVolumeIcon == null) return;
-
-        int iconRes;
-        if (volumePercent == 0) {
-            iconRes = R.drawable.ic_volume_off;
-        } else if (volumePercent < 50) {
-            iconRes = R.drawable.ic_volume_down;
-        } else {
-            iconRes = R.drawable.ic_volume_up;
+    /**
+     * Smoothly animate the wave amplitude transition for a polished effect.
+     */
+    private void animateWaveAmplitude(int targetAmplitude) {
+        if (waveAnimator != null && waveAnimator.isRunning()) {
+            waveAnimator.cancel();
         }
 
-        ivVolumeIcon.setImageDrawable(getResources().getDrawable(iconRes, null));
+        waveAnimator = ValueAnimator.ofInt(currentWaveAmplitude, targetAmplitude);
+        waveAnimator.setDuration(400); // 400ms smooth transition
+        waveAnimator.setInterpolator(new FastOutSlowInInterpolator());
+        waveAnimator.addUpdateListener(animation -> {
+            if (waveProgress != null) {
+                currentWaveAmplitude = (int) animation.getAnimatedValue();
+                waveProgress.setWaveAmplitude(currentWaveAmplitude);
+            }
+        });
+        waveAnimator.start();
     }
 
     private void enableAdvancedHaptics() {
         if (!hasRecordPermission()) {
             requestRecordAudioPermission();
-            chipSongHaptics.setChecked(false);
             viewModel.setHapticsEnabled(false);
             return;
         }
@@ -943,12 +1716,9 @@ public class PlayerFragment extends Fragment {
             try {
                 visualizer.setEnabled(true);
                 resetHapticState();
-
                 Log.d(TAG, "Effects-aware haptics ENABLED");
-                showSnackbar("Music Haptics enabled - Feel the effects!", Snackbar.LENGTH_SHORT);
             } catch (Exception e) {
                 Log.e(TAG, "Failed: " + e.getMessage());
-                chipSongHaptics.setChecked(false);
                 viewModel.setHapticsEnabled(false);
             }
         } else {
@@ -956,8 +1726,6 @@ public class PlayerFragment extends Fragment {
             if (visualizer != null) {
                 enableAdvancedHaptics();
             } else {
-                showSnackbar("Play a song first", Snackbar.LENGTH_SHORT);
-                chipSongHaptics.setChecked(false);
                 viewModel.setHapticsEnabled(false);
             }
         }
@@ -987,23 +1755,12 @@ public class PlayerFragment extends Fragment {
         }
     }
 
-    // =========================
-    // UTILITY METHODS
-    // =========================
-    private void openSongPicker() {
-        SongPickerBottomSheet sheet = new SongPickerBottomSheet();
-        sheet.setOnSongSelectedListener((title, artist, path) -> {
-            Uri uri = Uri.fromFile(new File(path));
-            viewModel.setSongUri(uri);
-        });
-        sheet.show(getParentFragmentManager(), "song_picker");
-    }
-
     private void loadSongMetadata(Uri uri) {
         new Thread(() -> {
             try {
                 MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-                if (getContext() == null) return;
+                if (getContext() == null)
+                    return;
 
                 retriever.setDataSource(getContext(), uri);
 
@@ -1057,7 +1814,7 @@ public class PlayerFragment extends Fragment {
 
         if (getContext() != null) {
             try (Cursor cursor = getContext().getContentResolver().query(
-                    uri, new String[]{MediaStore.Audio.Media.DISPLAY_NAME}, null, null, null)) {
+                    uri, new String[] { MediaStore.Audio.Media.DISPLAY_NAME }, null, null, null)) {
                 if (cursor != null && cursor.moveToFirst()) {
                     int nameIndex = cursor.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME);
                     if (nameIndex != -1) {
@@ -1099,7 +1856,8 @@ public class PlayerFragment extends Fragment {
 
         Snackbar processingSnackbar = Snackbar.make(rootView, "Processing...", Snackbar.LENGTH_INDEFINITE);
         View bottomNav = getActivity().findViewById(R.id.nav_view);
-        if (bottomNav != null) processingSnackbar.setAnchorView(bottomNav);
+        if (bottomNav != null)
+            processingSnackbar.setAnchorView(bottomNav);
         processingSnackbar.show();
 
         new Thread(() -> {
@@ -1119,7 +1877,8 @@ public class PlayerFragment extends Fragment {
 
                 if (outputFile.exists() && outputFile.length() > 0) {
                     AudioFileManager.scanFile(getContext(), outputFile);
-                    dismissSnackbarAndShowWithAction(processingSnackbar, "✓ Saved to Downloads/SpatialFlow", Snackbar.LENGTH_LONG, outputFile);
+                    dismissSnackbarAndShowWithAction(processingSnackbar, "✓ Saved to Downloads/SpatialFlow",
+                            Snackbar.LENGTH_LONG, outputFile);
                 } else {
                     dismissSnackbarAndShow(processingSnackbar, "Failed to save", Snackbar.LENGTH_SHORT);
                 }
@@ -1135,7 +1894,8 @@ public class PlayerFragment extends Fragment {
             getActivity().runOnUiThread(() -> {
                 Snackbar snackbar = Snackbar.make(rootView, message, duration);
                 View bottomNav = getActivity().findViewById(R.id.nav_view);
-                if (bottomNav != null) snackbar.setAnchorView(bottomNav);
+                if (bottomNav != null)
+                    snackbar.setAnchorView(bottomNav);
                 snackbar.show();
             });
         }
@@ -1144,10 +1904,12 @@ public class PlayerFragment extends Fragment {
     private void dismissSnackbarAndShow(Snackbar oldSnackbar, String message, int duration) {
         if (getActivity() != null && rootView != null) {
             getActivity().runOnUiThread(() -> {
-                if (oldSnackbar != null) oldSnackbar.dismiss();
+                if (oldSnackbar != null)
+                    oldSnackbar.dismiss();
                 Snackbar snackbar = Snackbar.make(rootView, message, duration);
                 View bottomNav = getActivity().findViewById(R.id.nav_view);
-                if (bottomNav != null) snackbar.setAnchorView(bottomNav);
+                if (bottomNav != null)
+                    snackbar.setAnchorView(bottomNav);
                 snackbar.show();
             });
         }
@@ -1156,10 +1918,12 @@ public class PlayerFragment extends Fragment {
     private void dismissSnackbarAndShowWithAction(Snackbar oldSnackbar, String message, int duration, File outputFile) {
         if (getActivity() != null && rootView != null) {
             getActivity().runOnUiThread(() -> {
-                if (oldSnackbar != null) oldSnackbar.dismiss();
+                if (oldSnackbar != null)
+                    oldSnackbar.dismiss();
                 Snackbar snackbar = Snackbar.make(rootView, message, duration);
                 View bottomNav = getActivity().findViewById(R.id.nav_view);
-                if (bottomNav != null) snackbar.setAnchorView(bottomNav);
+                if (bottomNav != null)
+                    snackbar.setAnchorView(bottomNav);
                 snackbar.setAction("SHOW", v -> openSpatialFlowFolder(outputFile));
                 snackbar.show();
             });
@@ -1184,21 +1948,102 @@ public class PlayerFragment extends Fragment {
             progressHandler.removeCallbacks(progressRunnable);
         }
 
-        // Only release visualizer if haptics disabled or app closing
-        Boolean hapticsEnabled = viewModel.getIsHapticsEnabled().getValue();
-        boolean shouldRelease = (hapticsEnabled == null || !hapticsEnabled) ||
-                (getActivity() != null && getActivity().isFinishing());
+        // Always release visualizer on fragment destroy for clean re-init
+        // (Keeping it alive causes corrupted state on return)
+        releaseVisualizer();
+        Log.d(TAG, "Visualizer released on destroy");
 
-        if (shouldRelease) {
-            releaseVisualizer();
-            Log.d(TAG, "Visualizer released on destroy");
-        } else {
-            Log.d(TAG, "Visualizer kept alive (haptics ON, fragment switch)");
+        if (serviceBound && getContext() != null) {
+            getContext().unbindService(serviceConnection);
+            serviceBound = false;
+        }
+    }
+
+    private void applyMaterialDynamicCalibration() {
+        if (getContext() == null || gradientBackground == null)
+            return;
+
+        // Ensure current isDarkMode is synced using context resources
+        int nightModeFlags = getContext().getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        this.isDarkMode = nightModeFlags == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+
+        // Material 3 Expressive Dynamic Colors
+        int surfaceHigh = MaterialColors.getColor(requireContext(),
+                com.google.android.material.R.attr.colorSurfaceContainerHigh, android.graphics.Color.GRAY);
+        int secContainer = MaterialColors.getColor(requireContext(),
+                com.google.android.material.R.attr.colorSecondaryContainer, android.graphics.Color.GRAY);
+        int tertContainer = MaterialColors.getColor(requireContext(),
+                com.google.android.material.R.attr.colorTertiaryContainer, android.graphics.Color.GRAY);
+        int primContainer = MaterialColors.getColor(requireContext(),
+                com.google.android.material.R.attr.colorPrimaryContainer, android.graphics.Color.GRAY);
+
+        int[] defaultColors = new int[] { primContainer, tertContainer, secContainer, surfaceHigh };
+        gradientBackground.setColors(defaultColors);
+        gradientBackground.setIsDarkMode(isDarkMode);
+
+        int primaryColor = MaterialColors.getColor(requireContext(), com.google.android.material.R.attr.colorOnSurface,
+                android.graphics.Color.BLACK);
+        int secondaryColor = MaterialColors.getColor(requireContext(),
+                com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.DKGRAY);
+
+        if (playerBottomSheet != null)
+            playerBottomSheet.setCardBackgroundColor(surfaceHigh);
+
+        if (tvSongName != null)
+            tvSongName.setTextColor(primaryColor);
+        if (tvArtistName != null)
+            tvArtistName.setTextColor(secondaryColor);
+        if (tvNowPlaying != null)
+            tvNowPlaying.setTextColor(primaryColor);
+        if (tvCurrentTime != null)
+            tvCurrentTime.setTextColor(secondaryColor);
+        if (tvTotalTime != null)
+            tvTotalTime.setTextColor(secondaryColor);
+
+        if (secondaryControlsCard != null)
+            secondaryControlsCard.setCardBackgroundColor(surfaceHigh);
+
+        if (btnPlayPauseToggle != null) {
+            btnPlayPauseToggle.setBackgroundTintList(android.content.res.ColorStateList.valueOf(primaryColor));
+            btnPlayPauseToggle.setIconTint(android.content.res.ColorStateList
+                    .valueOf(isDarkMode ? android.graphics.Color.BLACK : android.graphics.Color.WHITE));
         }
 
-        if (serviceBound) {
-            requireContext().unbindService(serviceConnection);
-            serviceBound = false;
+        if (btnPrevious != null)
+            btnPrevious.setIconTint(android.content.res.ColorStateList.valueOf(primaryColor));
+        if (btnNext != null)
+            btnNext.setIconTint(android.content.res.ColorStateList.valueOf(primaryColor));
+
+        android.content.res.ColorStateList secTint = android.content.res.ColorStateList.valueOf(secondaryColor);
+        if (btnShuffle != null)
+            btnShuffle.setIconTint(secTint);
+        if (btnRepeat != null)
+            btnRepeat.setIconTint(secTint);
+        if (btnFavorite != null)
+            btnFavorite.setIconTint(secTint);
+
+        if (chipSongHaptics != null) {
+            chipSongHaptics.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(surfaceHigh));
+            chipSongHaptics.setTextColor(secTint);
+            chipSongHaptics.setChipStrokeWidth(0);
+            chipSongHaptics.setChipIconTint(secTint);
+            chipSongHaptics.setAlpha(1.0f);
+        }
+
+        if (btnMiniPlayPause != null) {
+            btnMiniPlayPause.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
+            btnMiniPlayPause.setIconTint(android.content.res.ColorStateList.valueOf(primaryColor));
+        }
+        if (btnMiniPrevious != null)
+            btnMiniPrevious.setIconTint(android.content.res.ColorStateList.valueOf(primaryColor));
+        if (btnMiniNext != null)
+            btnMiniNext.setIconTint(android.content.res.ColorStateList.valueOf(primaryColor));
+
+        if (miniProgress != null) {
+            miniProgress.setIndicatorColor(primaryColor);
+            miniProgress.setTrackColor((primaryColor & 0x00FFFFFF) | 0x33000000);
         }
     }
 }

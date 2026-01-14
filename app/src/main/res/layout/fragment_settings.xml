@@ -7,6 +7,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/colorSurface"
+    android:fitsSystemWindows="true"
     tools:context="com.codetrio.spatialflow.ui.SettingsFragment">
 
     <androidx.core.widget.NestedScrollView
@@ -14,7 +15,7 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:clipToPadding="false"
-        android:paddingBottom="16dp"
+        android:paddingBottom="100dp"
         android:scrollbars="vertical"
         android:fillViewport="true"
         app:layout_constraintTop_toTopOf="parent"
@@ -46,9 +47,7 @@
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
                 android:text="@string/setting_dark_mode"
-                android:textAppearance="?attr/textAppearanceBodyLarge"
-                app:thumbTint="?attr/colorPrimary"
-                app:trackTint="?attr/colorSurfaceVariant" />
+                android:textAppearance="?attr/textAppearanceBodyLarge" />
 
             <com.google.android.material.divider.MaterialDivider
                 android:layout_width="match_parent"

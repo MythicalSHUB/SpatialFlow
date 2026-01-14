@@ -47,6 +47,10 @@ public class AudioPlaybackService extends Service {
 
     private static final String ACTION_PLAY = "com.codetrio.spatialflow.ACTION_PLAY";
     private static final String ACTION_PAUSE = "com.codetrio.spatialflow.ACTION_PAUSE";
+    private static final String ACTION_PREVIOUS = "com.codetrio.spatialflow.ACTION_PREVIOUS";
+    private static final String ACTION_NEXT = "com.codetrio.spatialflow.ACTION_NEXT";
+    private static final String ACTION_REWIND = "com.codetrio.spatialflow.ACTION_REWIND";
+    private static final String ACTION_FORWARD = "com.codetrio.spatialflow.ACTION_FORWARD";
 
     private final IBinder binder = new LocalBinder();
     private MediaPlayer mediaPlayer;
@@ -76,6 +80,9 @@ public class AudioPlaybackService extends Service {
     // Track which file MediaPlayer currently uses
     private String currentlyLoadedPath = null;
 
+    // Autoplay flag - when true, play() is called automatically after prepare
+    private boolean shouldAutoPlay = false;
+
     public class LocalBinder extends Binder {
         public AudioPlaybackService getService() {
             return AudioPlaybackService.this;
@@ -101,8 +108,7 @@ public class AudioPlaybackService extends Service {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
                     "Audio Playback",
-                    NotificationManager.IMPORTANCE_HIGH
-            );
+                    NotificationManager.IMPORTANCE_HIGH);
             channel.setDescription("Shows currently playing audio");
             channel.setShowBadge(false);
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
@@ -120,8 +126,7 @@ public class AudioPlaybackService extends Service {
         mediaSession = new MediaSessionCompat(this, TAG);
         mediaSession.setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
-                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
-        );
+                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
 
         mediaSession.setCallback(new MediaSessionCompat.Callback() {
             @Override
@@ -174,8 +179,7 @@ public class AudioPlaybackService extends Service {
                                 PlaybackStateCompat.ACTION_STOP |
                                 PlaybackStateCompat.ACTION_SEEK_TO |
                                 PlaybackStateCompat.ACTION_REWIND |
-                                PlaybackStateCompat.ACTION_FAST_FORWARD
-                )
+                                PlaybackStateCompat.ACTION_FAST_FORWARD)
                 .setState(state, position, 1.0f);
 
         mediaSession.setPlaybackState(stateBuilder.build());
@@ -207,14 +211,37 @@ public class AudioPlaybackService extends Service {
         notificationIntent.putExtra(MainActivity.EXTRA_OPEN_PLAYER, true);
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this, 0, notificationIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // Previous track
+        Intent prevIntent = new Intent(this, AudioPlaybackService.class)
+                .setAction(ACTION_PREVIOUS);
+        PendingIntent prevPendingIntent = PendingIntent.getService(
+                this, 1, prevIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Rewind 30s
+        Intent rewindIntent = new Intent(this, AudioPlaybackService.class)
+                .setAction(ACTION_REWIND);
+        PendingIntent rewindPendingIntent = PendingIntent.getService(
+                this, 2, rewindIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Play/Pause
         Intent playPauseIntent = new Intent(this, AudioPlaybackService.class)
                 .setAction(isPlaying ? ACTION_PAUSE : ACTION_PLAY);
         PendingIntent playPausePendingIntent = PendingIntent.getService(
-                this, 0, playPauseIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+                this, 3, playPauseIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Forward 30s
+        Intent forwardIntent = new Intent(this, AudioPlaybackService.class)
+                .setAction(ACTION_FORWARD);
+        PendingIntent forwardPendingIntent = PendingIntent.getService(
+                this, 4, forwardIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Next track
+        Intent nextIntent = new Intent(this, AudioPlaybackService.class)
+                .setAction(ACTION_NEXT);
+        PendingIntent nextPendingIntent = PendingIntent.getService(
+                this, 5, nextIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_music_note)
@@ -234,16 +261,18 @@ public class AudioPlaybackService extends Service {
             builder.setLargeIcon(currentAlbumArt);
         }
 
+        // Add all control actions
+        builder.addAction(R.drawable.ic_skip_previous, "Previous", prevPendingIntent);
         builder.addAction(
                 isPlaying ? R.drawable.ic_pause : R.drawable.ic_play,
                 isPlaying ? "Pause" : "Play",
-                playPausePendingIntent
-        );
+                playPausePendingIntent);
+        builder.addAction(R.drawable.ic_skip_next, "Next", nextPendingIntent);
 
-        androidx.media.app.NotificationCompat.MediaStyle mediaStyle =
-                new androidx.media.app.NotificationCompat.MediaStyle()
-                        .setMediaSession(mediaSession.getSessionToken())
-                        .setShowActionsInCompactView(0);
+        // MediaStyle with 3 actions in compact view (prev, play/pause, next)
+        androidx.media.app.NotificationCompat.MediaStyle mediaStyle = new androidx.media.app.NotificationCompat.MediaStyle()
+                .setMediaSession(mediaSession.getSessionToken())
+                .setShowActionsInCompactView(0, 2, 4); // prev, play/pause, next
 
         builder.setStyle(mediaStyle);
 
@@ -280,14 +309,33 @@ public class AudioPlaybackService extends Service {
 
     private void setupMediaPlayerListeners() {
         mediaPlayer.setOnCompletionListener(mp -> {
-            Log.d(TAG, "Playback completed");
-            if (viewModel != null) {
-                viewModel.setIsPlaying(false);
-                viewModel.setCurrentPosition(0);
+            Log.d(TAG, "Playback completion signal received");
+
+            try {
+                int currentPos = mp.getCurrentPosition();
+                int duration = mp.getDuration();
+
+                // Only skip if we are close to the end (within 1 second)
+                // This prevents accidental skips triggered by stop/reset/seek during
+                // transitions
+                if (currentPos >= duration - 1000) {
+                    Log.d(TAG, "Natural completion detected, auto-playing next");
+                    if (viewModel != null) {
+                        viewModel.setCurrentPosition(0);
+                        handler.post(() -> {
+                            if (viewModel != null) {
+                                viewModel.playNextSong();
+                            }
+                        });
+                    }
+                } else {
+                    Log.d(TAG, "Completion signal ignored: Position " + currentPos + " < Duration " + duration);
+                }
+            } catch (IllegalStateException e) {
+                Log.w(TAG, "MediaPlayer state error during completion check");
             }
-            stopProgressTracking();
-            updatePlaybackState(PlaybackStateCompat.STATE_STOPPED);
-            updateNotification(false);
+
+            updatePlaybackState(PlaybackStateCompat.STATE_SKIPPING_TO_NEXT);
         });
 
         mediaPlayer.setOnPreparedListener(mp -> {
@@ -313,19 +361,22 @@ public class AudioPlaybackService extends Service {
         progressRunnable = new Runnable() {
             @Override
             public void run() {
-                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-                    if (viewModel != null) {
-                        try {
-                            viewModel.setCurrentPosition(mediaPlayer.getCurrentPosition());
-                        } catch (IllegalStateException e) {
-                            Log.w(TAG, "Cannot get position while playing");
+                if (mediaPlayer != null) {
+                    try {
+                        if (mediaPlayer.isPlaying()) {
+                            if (viewModel != null) {
+                                viewModel.setCurrentPosition(mediaPlayer.getCurrentPosition());
+                            }
+                            updatePlaybackState(PlaybackStateCompat.STATE_PLAYING);
                         }
+                    } catch (IllegalStateException e) {
+                        Log.w(TAG, "MediaPlayer in invalid state for position sync");
                     }
-                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING);
-                    handler.postDelayed(this, 500);
+                    handler.postDelayed(this, 100);
                 }
             }
         };
+        handler.post(progressRunnable);
     }
 
     private void initializeAudioEffects() {
@@ -381,15 +432,52 @@ public class AudioPlaybackService extends Service {
         }
     }
 
+    /**
+     * Sets powerful bass boost with proper gain staging.
+     * Simple and effective - no over-boosting that reduces volume.
+     *
+     * @param boostDb Bass boost level (-15 to +15 dB)
+     */
     public void setBassBoost(int boostDb) {
-        if (bassBoostEffect != null) {
-            try {
-                int strength = Math.max(0, Math.min(1000, (boostDb + 15) * 1000 / 30));
-                bassBoostEffect.setStrength((short) strength);
-                Log.d(TAG, "BassBoost: " + boostDb + "dB (strength: " + strength + ")");
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to set bass boost: " + e.getMessage());
+        if (bassBoostEffect == null)
+            return;
+
+        final int DB_MIN = -15;
+        final int DB_MAX = 15;
+
+        try {
+            // Clamp input
+            int clampedDb = Math.max(DB_MIN, Math.min(DB_MAX, boostDb));
+
+            if (clampedDb <= 0) {
+                // Disable or reduce bass
+                bassBoostEffect.setStrength((short) 0);
+                Log.d(TAG, "Bass boost disabled");
+                return;
             }
+
+            // === SIMPLE POWERFUL FORMULA ===
+            // Direct linear mapping with power curve for punch
+            // At +15dB: always hit 1000 (maximum)
+            float normalized = (float) clampedDb / 15.0f; // 0.0 to 1.0
+
+            // Square curve for more aggressive response at higher levels
+            float curved = normalized * normalized; // Exponential punch
+
+            // Convert to Android strength (0-1000)
+            int strength = Math.round(curved * 1000);
+
+            // Ensure max strength at high boost
+            if (clampedDb >= 12) {
+                strength = 1000; // Force maximum at +12dB and above
+            }
+
+            bassBoostEffect.setStrength((short) strength);
+
+            Log.d(TAG, "💥 Bass: " + clampedDb + "dB → Strength: " + strength + "/1000");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Bass boost failed: " + e.getMessage());
         }
     }
 
@@ -457,11 +545,22 @@ public class AudioPlaybackService extends Service {
     public void setPlaybackSpeed(float speed) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && mediaPlayer != null) {
             try {
+                // BUGFIX: setPlaybackParams() can auto-start playback on some Android versions
+                // We need to check the current state and restore it after setting params
+                boolean wasPlaying = mediaPlayer.isPlaying();
+
                 android.media.PlaybackParams params = mediaPlayer.getPlaybackParams();
                 params.setSpeed(speed);
                 params.setPitch(speed);
                 mediaPlayer.setPlaybackParams(params);
-                Log.d(TAG, "Speed: " + speed + "x (pitch matched)");
+
+                // Restore paused state if the player was not playing before
+                if (!wasPlaying && mediaPlayer.isPlaying()) {
+                    mediaPlayer.pause();
+                    Log.d(TAG, "Speed: " + speed + "x (pitch matched) - re-paused to prevent auto-play");
+                } else {
+                    Log.d(TAG, "Speed: " + speed + "x (pitch matched)");
+                }
             } catch (Exception e) {
                 Log.e(TAG, "Failed to set playback speed: " + e.getMessage());
             }
@@ -484,8 +583,8 @@ public class AudioPlaybackService extends Service {
                     viewModel.setCurrentPosition(newPos);
                 }
 
-                updatePlaybackState(mediaPlayer.isPlaying() ?
-                        PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
+                updatePlaybackState(
+                        mediaPlayer.isPlaying() ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
 
                 Log.d(TAG, "Rewound 30 seconds: " + currentPos + " → " + newPos);
             } catch (IllegalStateException e) {
@@ -509,8 +608,8 @@ public class AudioPlaybackService extends Service {
                     viewModel.setCurrentPosition(newPos);
                 }
 
-                updatePlaybackState(mediaPlayer.isPlaying() ?
-                        PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
+                updatePlaybackState(
+                        mediaPlayer.isPlaying() ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
 
                 Log.d(TAG, "Forwarded 30 seconds: " + currentPos + " → " + newPos);
             } catch (IllegalStateException e) {
@@ -527,12 +626,25 @@ public class AudioPlaybackService extends Service {
     }
 
     public void loadAudio(Uri uri) {
+        shouldAutoPlay = false; // Disable autoplay for regular load
+        loadAudioInternal(uri);
+    }
+
+    /**
+     * Load audio and automatically start playback when ready.
+     */
+    public void loadAndPlay(Uri uri) {
+        shouldAutoPlay = true; // Enable autoplay
+        loadAudioInternal(uri);
+    }
+
+    private void loadAudioInternal(Uri uri) {
         if (uri == null) {
             Log.e(TAG, "URI is null");
             return;
         }
 
-        Log.d(TAG, "Loading audio from URI: " + uri);
+        Log.d(TAG, "Loading audio from URI: " + uri + " (autoplay: " + shouldAutoPlay + ")");
         currentSourceUri = uri;
 
         hasProcessed8D = false;
@@ -564,23 +676,32 @@ public class AudioPlaybackService extends Service {
                 if (viewModel != null) {
                     viewModel.setDuration(mp.getDuration());
                     viewModel.setCurrentPosition(0);
-                    viewModel.postIsPlaying(false);
                 }
 
                 updateMediaMetadata();
                 initializeAudioEffects();
-                updatePlaybackState(PlaybackStateCompat.STATE_PAUSED);
-                updateNotification(false);
-
                 setupMediaPlayerListeners();
 
-                Log.d(TAG, "Ready to play - awaiting user action");
+                // Check if we should auto-play
+                if (shouldAutoPlay) {
+                    Log.d(TAG, "Autoplay enabled - starting playback");
+                    play();
+                    shouldAutoPlay = false; // Reset flag
+                } else {
+                    if (viewModel != null) {
+                        viewModel.postIsPlaying(false);
+                    }
+                    updatePlaybackState(PlaybackStateCompat.STATE_PAUSED);
+                    updateNotification(false);
+                    Log.d(TAG, "Ready to play - awaiting user action");
+                }
             });
 
             mediaPlayer.prepareAsync();
 
         } catch (IOException | IllegalStateException e) {
             Log.e(TAG, "Error loading audio: " + e.getMessage(), e);
+            shouldAutoPlay = false; // Reset on error
         }
     }
 
@@ -658,7 +779,7 @@ public class AudioPlaybackService extends Service {
                 "8d_audio_" + System.currentTimeMillis() + ".m4a");
         String outputPath = outputFile.getAbsolutePath();
 
-        String command = FFmpegCommandBuilder.build8D(currentSourcePath, outputPath, 1.0f);
+        String command = FFmpegCommandBuilder.build8D(currentSourcePath, outputPath, 0.08f);
         Log.d(TAG, "FFmpeg command: " + command);
 
         final int songDuration = mediaPlayer.getDuration();
@@ -728,13 +849,11 @@ public class AudioPlaybackService extends Service {
                         if (timeInMillis > 0 && songDuration > 0) {
                             double progress = Math.min((timeInMillis * 100) / songDuration, 99);
                             if (viewModel != null) {
-                                handler.post(() ->
-                                        viewModel.setProcessingProgress((int) progress));
+                                handler.post(() -> viewModel.setProcessingProgress((int) progress));
                             }
                         }
                     }
-                }
-        );
+                });
     }
 
     private boolean isCurrentlyPlayingProcessedFile() {
@@ -782,7 +901,8 @@ public class AudioPlaybackService extends Service {
     }
 
     private void loadOriginalAudio() {
-        if (currentSourceUri == null) return;
+        if (currentSourceUri == null)
+            return;
 
         boolean wasPlaying = mediaPlayer.isPlaying();
         int position = mediaPlayer.getCurrentPosition();
@@ -942,8 +1062,8 @@ public class AudioPlaybackService extends Service {
                 if (viewModel != null) {
                     viewModel.setCurrentPosition(position);
                 }
-                updatePlaybackState(mediaPlayer.isPlaying() ?
-                        PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
+                updatePlaybackState(
+                        mediaPlayer.isPlaying() ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED);
                 Log.d(TAG, "Seeked to: " + position);
             } catch (IllegalStateException e) {
                 Log.e(TAG, "Cannot seek: " + e.getMessage(), e);
@@ -962,8 +1082,7 @@ public class AudioPlaybackService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Notification notification = createNotification(
-                mediaPlayer != null && mediaPlayer.isPlaying()
-        );
+                mediaPlayer != null && mediaPlayer.isPlaying());
         startForeground(NOTIFICATION_ID, notification);
 
         MediaButtonReceiver.handleIntent(mediaSession, intent);
