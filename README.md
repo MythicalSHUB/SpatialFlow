@@ -15,8 +15,6 @@
   <img src="https://img.shields.io/github/actions/workflow/status/MythicalSHUB/SpatialFlow/release.yml?style=for-the-badge&label=BUILD" />
 
   <!-- Repo Health -->
-  <img src="https://img.shields.io/github/stars/MythicalSHUB/SpatialFlow?color=FBBF24&style=for-the-badge" />
-  <img src="https://img.shields.io/github/forks/MythicalSHUB/SpatialFlow?color=38BDF8&style=for-the-badge" />
   <img src="https://img.shields.io/github/issues/MythicalSHUB/SpatialFlow?color=EF4444&style=for-the-badge" />
 
   <!-- Tech Stack -->
