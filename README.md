@@ -83,13 +83,13 @@ SpatialFlow comes with a built-in updater that:
 * **UI:** Material 3, ConstraintLayout, ViewBinding
 * **Audio Engine:** Android Media APIs
 * **Update System:** GitHub Releases API JSON parsing
-
+ <!--
 <p >
   <img src="screenshots/Screenshot_2025-12-10-16-15-29-613_com.codetrio.spatialflow.jpg" width="30%">
   <img src="screenshots/Screenshot_2025-12-10-16-15-33-324_com.codetrio.spatialflow.jpg" width="30%">
   <img src="screenshots/Screenshot_2025-12-10-16-15-46-531_com.codetrio.spatialflow.jpg" width="30%">
 </p>
-
+-->
 
 ## Versioning
 
