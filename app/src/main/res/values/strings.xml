@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- App name -->
+    <string name="app_name">SpatialFlow</string>
+
+    <!-- Bottom tabs -->
+    <string name="tab_player">Player</string>
+    <string name="tab_effects">Effects</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Player fragment -->
+    <string name="album_art">Album Art</string>
+    <string name="no_song_selected">No Song Selected</string>
+    <string name="select_song">Select Song</string>
+    <string name="change_song">Load Song</string>
+    <string name="save">Save</string>
+    <string name="cd_play_pause">Play or Pause Music</string>
+    <string name="cd_stop">Stop Music Playback</string>
+    <string name="search_songs_hint">Search songs…</string>
+
+    <!-- Effects fragment -->
+    <string name="audio_effects">Audio Effects</string>
+    <string name="eight_d_audio">8D Audio</string>
+    <string name="eight_d_description">Creates circular panning effect - sound rotates around your head in 3D space</string>
+    <string name="rotation_speed">Rotation Speed</string>
+    <string name="bass_boost">Bass Boost</string>
+    <string name="bass_description">Enhance or reduce low frequency sounds. Adds punch and depth to your music</string>
+    <string name="bass_level">Bass Level</string>
+    <string name="effects_applied_tooltip">Effects applied to this song</string>
+    <string name="processing_audio">Processing audio with effects…</string>
+    <string name="select_bass_level">Select level</string>
+
+    <!-- Settings headers -->
+    <string name="settings_header_general">General</string>
+    <string name="settings_header_about">About</string>
+
+    <!-- General settings -->
+    <string name="setting_dark_mode">Dark Mode</string>
+    <string name="setting_audio_focus">Handle Audio Focus</string>
+    <string name="settings_haptics_title">Vibrations</string>
+    <string name="settings_haptics_not_supported">Haptics not supported on this device</string>
+    <string name="setting_enable_haptics">Enable Haptics</string>
+    <string name="setting_vibration_strength">Vibration Strength</string>
+    <string name="setting_haptic_intensity">Haptic Feedback Intensity</string>
+
+    <!-- Playback settings -->
+    <string name="settings_header_playback">Playback</string>
+    <string name="setting_crossfade">Crossfade</string>
+    <string name="setting_sleep_timer">Sleep Timer</string>
+    <string name="setting_sleep_timer_off">Off</string>
+    <string name="setting_sleep_timer_end_of_song">End of current song</string>
+
+    <!-- Library settings -->
+    <string name="settings_header_library">Library</string>
+    <string name="setting_music_source">Music Source</string>
+    <string name="setting_music_source_default">All audio files on device</string>
+    <string name="setting_add_more_path">Add folder</string>
+
+    <!-- Storage settings -->
+    <string name="settings_header_storage">Storage</string>
+    <string name="setting_clear_cache">Clear Cache</string>
+
+    <!-- About settings -->
+    <string name="setting_version_placeholder">App Version</string>
+    <string name="setting_licenses">Open Source Licenses</string>
+
+    <!-- Example message/sync prefs (if still used) -->
+    <string name="messages_header">Messages</string>
+    <string name="sync_header">Sync</string>
+    <string name="signature_title">Your signature</string>
+    <string name="reply_title">Default reply action</string>
+    <string name="sync_title">Sync email periodically</string>
+    <string name="attachment_title">Download incoming attachments</string>
+    <string name="attachment_summary_on">Automatically download attachments for incoming emails</string>
+    <string name="attachment_summary_off">Only download attachments when manually requested</string>
+
+    <!-- What's New dialog -->
+    <string name="whats_new_title">What\'s New in Version %1$s</string>
+    <string name="whats_new_positive_button">Got It</string>
+    <string name="whats_new_content_template"><![CDATA[
+        <big><b>Highlights in %1$s</b></big><br><br>
+
+        <b>Critical Fixes</b><br>
+        • <b>Mini Player:</b> Fixed layout overlap with system navigation<br>
+        • <b>Crash Fix:</b> Resolved slider issue on Android 9<br>
+        • <b>Haptic Fix:</b> Now Haptics and Vibration Works on Every Devices<br><br>
+
+        <b>Visuals &amp; Theme</b><br>
+        • <b>Purple Vibe:</b> New default theme for non-dynamic devices<br>
+        • <b>Smart UI:</b> Auto-hiding navigation bar in Effects, Also the Music Haptics Chip is now Visible clearly<br><br>
+        • <b>Smart Sort:</b> Added A-Z Sorting Alphabets in Songs List<br>
+        • <b>Easy Search:</b> Added SearchBar in the Player<br>
+        • <b>Dark Mode:</b> Added Dark Mode Switch Animations<br><br>
+        ]]></string>,StartLine:58,TargetContent:
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="song_haptics">Song Haptics</string>
+
+
+
+</resources>

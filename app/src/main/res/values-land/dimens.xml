@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Optimized spacing for landscape - reduced for better fit -->
+    <dimen name="margin_screen_horizontal">20dp</dimen>
+    <dimen name="margin_large">16dp</dimen>
+    <dimen name="margin_medium">12dp</dimen>
+    <dimen name="margin_small">6dp</dimen>
+    <dimen name="margin_xsmall">4dp</dimen>
+
+    <!-- Album art proportions for landscape - slightly smaller -->
+    <dimen name="album_art_width_percent">0.32</dimen>
+    <dimen name="album_art_height_percent">0.75</dimen>
+    <dimen name="album_art_corner_radius">18dp</dimen>
+    <dimen name="album_art_max_size">280dp</dimen>
+    <dimen name="album_art_min_size">180dp</dimen>
+    <dimen name="album_art_elevation">3dp</dimen>
+
+    <!-- Vertical spacing - REDUCED for landscape fit -->
+    <dimen name="margin_between_album_title">8dp</dimen>
+    <dimen name="margin_between_title_slider">6dp</dimen>
+    <dimen name="margin_between_slider_controls">12dp</dimen>
+    <dimen name="margin_between_controls_actions">12dp</dimen>
+    <dimen name="margin_between_control_buttons">8dp</dimen>
+    <dimen name="margin_between_action_buttons">6dp</dimen>
+    <dimen name="margin_time_labels">2dp</dimen>
+
+    <!-- Top and bottom padding - minimal for landscape -->
+    <dimen name="padding_top_content">12dp</dimen>
+    <dimen name="padding_bottom_content">12dp</dimen>
+    <dimen name="margin_bottom_spacing">12dp</dimen>
+
+    <!-- Text sizes - compact for landscape -->
+    <dimen name="song_title_min_text_size">14sp</dimen>
+    <dimen name="song_title_max_text_size">18sp</dimen>
+    <dimen name="time_label_text_size">10sp</dimen>
+    <dimen name="chip_text_size">12sp</dimen>
+
+    <!-- Slider - thinner for landscape compactness -->
+    <dimen name="slider_track_height">6dp</dimen>
+    <dimen name="slider_thumb_radius">5dp</dimen>
+    <dimen name="chip_icon_size">14dp</dimen>
+
+    <!-- Main Controls - compact but usable -->
+    <dimen name="fab_play_size">56dp</dimen>
+    <dimen name="fab_play_icon_size">26dp</dimen>
+    <dimen name="fab_stop_size">48dp</dimen>
+    <dimen name="fab_stop_icon_size">20dp</dimen>
+
+    <!-- Volume FABs - mini size for landscape -->
+    <dimen name="fab_volume_size">36dp</dimen>
+    <dimen name="fab_volume_icon_size">18dp</dimen>
+
+    <!-- Action buttons - reduced height -->
+    <dimen name="button_height">40dp</dimen>
+    <dimen name="button_text_size">12sp</dimen>
+    <dimen name="button_icon_size">16dp</dimen>
+
+    <!-- Controls max width for landscape -->
+    <dimen name="controls_max_width">500dp</dimen>
+    <dimen name="controls_max_width_percent">0.88</dimen>
+
+</resources>

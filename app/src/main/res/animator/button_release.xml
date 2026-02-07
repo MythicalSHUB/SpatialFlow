@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bouncy release animation for Material 3 Expressive buttons -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="sequentially">
+    
+    <!-- Overshoot back to slightly larger than normal -->
+    <set android:ordering="together">
+        <objectAnimator
+            android:propertyName="scaleX"
+            android:duration="200"
+            android:valueFrom="0.92"
+            android:valueTo="1.05"
+            android:valueType="floatType"
+            android:interpolator="@android:interpolator/overshoot" />
+        
+        <objectAnimator
+            android:propertyName="scaleY"
+            android:duration="200"
+            android:valueFrom="0.92"
+            android:valueTo="1.05"
+            android:valueType="floatType"
+            android:interpolator="@android:interpolator/overshoot" />
+    </set>
+    
+    <!-- Settle back to normal size -->
+    <set android:ordering="together">
+        <objectAnimator
+            android:propertyName="scaleX"
+            android:duration="150"
+            android:valueFrom="1.05"
+            android:valueTo="1.0"
+            android:valueType="floatType"
+            android:interpolator="@android:interpolator/decelerate_cubic" />
+        
+        <objectAnimator
+            android:propertyName="scaleY"
+            android:duration="150"
+            android:valueFrom="1.05"
+            android:valueTo="1.0"
+            android:valueType="floatType"
+            android:interpolator="@android:interpolator/decelerate_cubic" />
+    </set>
+</set>

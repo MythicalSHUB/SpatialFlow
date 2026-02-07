@@ -1,0 +1,78 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      # Use your real SpatialFlow.jks from secrets
+      - name: Decode and write release keystore
+        run: |
+          mkdir -p $HOME/keystores
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $HOME/keystores/spatialflow.jks
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Set keystore env vars
+        run: |
+          echo "ANDROID_KEYSTORE_PATH=$HOME/keystores/spatialflow.jks" >> $GITHUB_ENV
+          echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "ANDROID_KEY_ALIAS_PASSWORD=${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Generate checksum
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum app-release.apk > checksum.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/checksum.txt
+          body: |
+            ## SpatialFlow ${{ github.ref_name }}
+            
+            ### What's New in v1.6
+            - 8D Auto-Reset on Song Change
+            - Full Light Mode Support (Player, Effects, Mesh Gradient)
+            - Fixed Landscape Mode (Player & Effects)
+            - Dark Mode Toggle Syncs with System Theme
+            - Optimized 8D Processing (Faster FFmpeg, No Bass Interference)
+            - Better Bottom Spacing in Effects & Settings
+            - Enhanced Mini Player Styling
+            - Improved Mesh Gradient Animations
+            
+            ### Installation
+            1. Download `app-release.apk`
+            2. Install on your Android device
+            3. Or use in-app "Check for updates" to auto-update
+            
+            ### Technical Details
+            - Min SDK: 24 (Android 7.0+)
+            - Target SDK: 35 (Android 15)
+            - Version Code: 6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

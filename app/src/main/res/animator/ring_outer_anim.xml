@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="together">
+    
+    <!-- Outer ring expands with fade -->
+    <objectAnimator
+        android:propertyName="scaleX"
+        android:duration="1000"
+        android:valueFrom="0.8"
+        android:valueTo="1.2"
+        android:valueType="floatType"
+        android:interpolator="@android:interpolator/decelerate_cubic"/>
+    
+    <objectAnimator
+        android:propertyName="scaleY"
+        android:duration="1000"
+        android:valueFrom="0.8"
+        android:valueTo="1.2"
+        android:valueType="floatType"
+        android:interpolator="@android:interpolator/decelerate_cubic"/>
+
+</set>

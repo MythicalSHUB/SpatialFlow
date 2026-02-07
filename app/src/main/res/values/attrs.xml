@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Explicitly defining these attributes in the project namespace to resolve R.attr compilation issues -->
+    <attr name="colorPrimary" format="reference|color" />
+    <attr name="colorPrimaryContainer" format="reference|color" />
+    <attr name="colorOnSurface" format="reference|color" />
+    <attr name="colorOnSurfaceVariant" format="reference|color" />
+    <attr name="colorSurfaceContainerLow" format="reference|color" />
+    <attr name="colorSurfaceContainerHigh" format="reference|color" />
+    <attr name="colorSecondaryContainer" format="reference|color" />
+    <attr name="colorTertiaryContainer" format="reference|color" />
+</resources>

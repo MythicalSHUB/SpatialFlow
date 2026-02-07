@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    app:fontProviderAuthority="com.google.android.gms.fonts"
+    app:fontProviderPackage="com.google.android.gms"
+    app:fontProviderQuery="name=Outfit&amp;weight=100..900"
+    app:fontProviderCerts="@array/com_google_android_gms_fonts_certs"
+    tools:ignore="FontValidation">
+</font-family>

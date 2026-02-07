@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="together">
+
+    <!-- Center bar - grows to full size and stays -->
+    <objectAnimator
+        android:propertyName="scaleY"
+        android:duration="800"
+        android:valueFrom="0.2"
+        android:valueTo="1.0"
+        android:valueType="floatType"
+        android:interpolator="@android:interpolator/overshoot"/>
+
+</set>

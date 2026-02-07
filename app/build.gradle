@@ -1,0 +1,111 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Read credentials from local.properties (secure, gitignored)
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localProps.load(new FileInputStream(localPropsFile))
+}
+
+// Use different variable names to avoid conflict with signing config properties
+def myKeystoreFile = localProps.getProperty('KEYSTORE_FILE') ?: System.getenv("ANDROID_KEYSTORE_PATH")
+def myKeystorePassword = localProps.getProperty('KEYSTORE_PASSWORD') ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+def myKeyAlias = localProps.getProperty('KEY_ALIAS') ?: System.getenv("ANDROID_KEY_ALIAS")
+def myKeyPassword = localProps.getProperty('KEY_PASSWORD') ?: System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+
+// Check if all required signing properties are available
+def isReleaseSigningReady = myKeystoreFile != null && myKeystorePassword != null && myKeyAlias != null && myKeyPassword != null
+
+android {
+    namespace 'com.codetrio.spatialflow'
+    compileSdk 36
+
+    // Fix for "App not installed" errors when sharing debug APKs
+    project.ext.set("android.injected.testOnly", "false")
+
+    defaultConfig {
+        applicationId "com.codetrio.spatialflow"
+        minSdk 24
+        targetSdk 35
+        versionCode 7
+        versionName "1.7"
+    }
+
+    signingConfigs {
+        release {
+            if (isReleaseSigningReady) {
+                storeFile file(myKeystoreFile)
+                storePassword myKeystorePassword
+                keyAlias myKeyAlias
+                keyPassword myKeyPassword
+            }
+        }
+    }
+
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            if (isReleaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+
+        debug {
+            if (isReleaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
+            debuggable true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+configurations {
+    configureEach {
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
+
+    implementation libs.kotlin.stdlib
+    implementation libs.glide
+    implementation libs.palette
+
+
+    implementation libs.material.v1140alpha08
+    implementation libs.core.splashscreen
+    implementation libs.core.ktx
+    implementation libs.appcompat.v170
+    implementation libs.constraintlayout.v220
+
+    implementation libs.lifecycle.viewmodel.ktx
+    implementation libs.lifecycle.livedata.ktx
+
+    implementation libs.viewpager2
+    implementation libs.media
+    implementation libs.swiperefreshlayout
+    implementation libs.navigation.fragment
+    implementation libs.navigation.ui
+
+    implementation libs.preference
+
+    testImplementation libs.junit
+    androidTestImplementation libs.junit.v121
+    androidTestImplementation libs.espresso.core.v361
+}

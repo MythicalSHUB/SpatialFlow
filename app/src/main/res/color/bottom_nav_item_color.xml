@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Selected/Active state -->
+    <item android:color="?attr/colorOnSecondaryContainer" android:state_checked="true"/>
+    <!-- Unselected/Inactive state -->
+    <item android:color="?attr/colorOnSurfaceVariant"/>
+</selector>

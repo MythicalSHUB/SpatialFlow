@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/navigation_player">
+
+    <fragment
+        android:id="@+id/navigation_player"
+        android:name="com.codetrio.spatialflow.ui.PlayerFragment"
+        android:label="Player">
+        <action
+            android:id="@+id/action_player_to_effects"
+            app:destination="@id/navigation_effects"
+            app:enterAnim="@anim/fragment_zoom_in"
+            app:exitAnim="@anim/fragment_zoom_out"
+            app:popEnterAnim="@anim/fragment_zoom_in"
+            app:popExitAnim="@anim/fragment_zoom_out" />
+        <action
+            android:id="@+id/action_player_to_settings"
+            app:destination="@id/navigation_settings"
+            app:enterAnim="@anim/fragment_zoom_in"
+            app:exitAnim="@anim/fragment_zoom_out"
+            app:popEnterAnim="@anim/fragment_zoom_in"
+            app:popExitAnim="@anim/fragment_zoom_out" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/navigation_effects"
+        android:name="com.codetrio.spatialflow.ui.EffectsFragment"
+        android:label="Effects">
+        <action
+            android:id="@+id/action_effects_to_player"
+            app:destination="@id/navigation_player"
+            app:enterAnim="@anim/fragment_zoom_in"
+            app:exitAnim="@anim/fragment_zoom_out"
+            app:popEnterAnim="@anim/fragment_zoom_in"
+            app:popExitAnim="@anim/fragment_zoom_out" />
+        <action
+            android:id="@+id/action_effects_to_settings"
+            app:destination="@id/navigation_settings"
+            app:enterAnim="@anim/fragment_zoom_in"
+            app:exitAnim="@anim/fragment_zoom_out"
+            app:popEnterAnim="@anim/fragment_zoom_in"
+            app:popExitAnim="@anim/fragment_zoom_out" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/navigation_settings"
+        android:name="com.codetrio.spatialflow.ui.SettingsFragment"
+        android:label="Settings">
+        <action
+            android:id="@+id/action_settings_to_player"
+            app:destination="@id/navigation_player"
+            app:enterAnim="@anim/fragment_zoom_in"
+            app:exitAnim="@anim/fragment_zoom_out"
+            app:popEnterAnim="@anim/fragment_zoom_in"
+            app:popExitAnim="@anim/fragment_zoom_out" />
+        <action
+            android:id="@+id/action_settings_to_effects"
+            app:destination="@id/navigation_effects"
+            app:enterAnim="@anim/fragment_zoom_in"
+            app:exitAnim="@anim/fragment_zoom_out"
+            app:popEnterAnim="@anim/fragment_zoom_in"
+            app:popExitAnim="@anim/fragment_zoom_out" />
+    </fragment>
+
+</navigation>

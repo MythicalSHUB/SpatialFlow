@@ -1,0 +1,656 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/coordinatorLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <!-- ================== LIBRARY (MAIN VIEW - LANDSCAPE OPTIMIZED) ================== -->
+    <!-- Using a simplified constraint layout, but maybe we can put search/sort side-by-side -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/libraryContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <!-- Header: Search Bar top, Sort Chips below or side? -->
+        <!-- In Land, let's keep it similar vertically for simplicity, but cleaner -->
+        
+        <com.google.android.material.search.SearchBar
+            android:id="@+id/searchBar"
+            android:layout_width="0dp"
+            android:layout_height="35dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginTop="8dp"
+            android:hint="@string/search_songs_hint"
+            app:layout_constraintEnd_toStartOf="@+id/sortButtonGroup"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintHorizontal_weight="0.4"/>
+
+        <!-- Sort Chips (Right of Search Bar in Landscape) -->
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/sortButtonGroup"
+            style="@style/Widget.Material3Expressive.MaterialButtonGroup.Connected"
+            android:layout_width="0dp"
+            android:layout_height="35dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="8dp"
+            app:singleSelection="true"
+            app:selectionRequired="true"
+            app:shapeAppearance="@style/ShapeAppearance.Material3.Corner.Full"
+            app:innerCornerSize="8dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toEndOf="@id/searchBar"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHorizontal_weight="0.6">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSortAZ"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:padding="0dp"
+                android:text="A-Z"
+                android:textSize="11sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:checkable="true"
+                android:checked="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSortRecent"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:padding="0dp"
+                android:text="Recent"
+                android:textSize="11sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:checkable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSortArtist"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:padding="0dp"
+                android:text="Artist"
+                android:textSize="11sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:checkable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSortFavorites"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:padding="0dp"
+                android:text="Favs"
+                android:textSize="11sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:checkable="true" />
+
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <!-- Refreshing Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardRefreshing"
+            style="?attr/materialCardViewFilledStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@android:color/transparent"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp"
+            app:layout_constraintTop_toBottomOf="@id/searchBar"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.loadingindicator.LoadingIndicator
+                android:id="@+id/loadingIndicator"
+                style="@style/Widget.Material3.LoadingIndicator.Contained"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_margin="12dp" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <androidx.constraintlayout.widget.Barrier
+            android:id="@+id/barrierRefresh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:barrierDirection="bottom"
+            app:constraint_referenced_ids="searchBar,sortButtonGroup,cardRefreshing" />
+
+        <!-- SwipeRefreshLayout -->
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/swipeRefreshLayout"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/barrierRefresh">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvSongLibrary"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="90dp"
+                tools:itemCount="10"
+                tools:listitem="@layout/item_library_song" />
+
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+        <!-- A-Z Fast Scroll Bar (Right Edge) -->
+        <com.codetrio.spatialflow.ui.custom.VerticalLetterBar
+            android:id="@+id/letterBar"
+            android:layout_width="24dp"
+            android:layout_height="0dp"
+            android:layout_marginEnd="2dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="100dp"
+            android:clipToPadding="false"
+            app:layout_constraintTop_toBottomOf="@id/barrierRefresh"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- Search View Overlay -->
+    <com.google.android.material.search.SearchView
+        android:id="@+id/searchView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:hint="@string/search_songs_hint"
+        app:layout_anchor="@id/searchBar">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvSearchResults"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingTop="15dp"
+            android:paddingBottom="16dp" />
+    </com.google.android.material.search.SearchView>
+
+
+    <!-- ================== CONSOLIDATED PLAYER BOTTOM SHEET (LANDSCAPE) ================== -->
+    <!-- Often in landscape, BottomSheets behave differently. We'll keep it standard 
+         but the CONTENT inside will be the Split-View. -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/playerBottomSheet"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginHorizontal="0dp"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="16dp"
+        app:strokeWidth="0dp"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <!-- Shared Background -->
+            <com.codetrio.spatialflow.ui.custom.AnimatedMeshGradientView
+                android:id="@+id/gradientBackground"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- ================== FULL PLAYER CONTENT (SPLIT VIEW) ================== -->
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/fullPlayerContent"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:padding="24dp"
+                android:alpha="0">
+
+                <!-- Guideline 45% -->
+                <androidx.constraintlayout.widget.Guideline
+                    android:id="@+id/guidelineCenter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    app:layout_constraintGuide_percent="0.45" />
+
+                <!-- 1. LEFT SIDE: ALBUM ART -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardAlbumArt"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_margin="16dp"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeWidth="0dp"
+                    app:layout_constraintDimensionRatio="1:1"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toStartOf="@id/guidelineCenter">
+
+                    <ImageView
+                        android:id="@+id/ivAlbumArt"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/default_album_art"
+                        android:contentDescription="Album Art" />
+                </com.google.android.material.card.MaterialCardView>
+
+                 <!-- 2. RIGHT SIDE: CONTROLS (Scrollable) -->
+                <androidx.core.widget.NestedScrollView
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:fillViewport="true"
+                    app:layout_constraintStart_toEndOf="@id/guidelineCenter"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent">
+
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingHorizontal="16dp">
+
+                        <!-- Title & Artist -->
+                        <LinearLayout
+                            android:id="@+id/songInfoContainer"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toStartOf="@+id/chipSongHaptics"
+                            app:layout_constraintTop_toTopOf="parent"
+                            android:layout_marginEnd="16dp">
+
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/tvSongName"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="marquee"
+                                android:marqueeRepeatLimit="marquee_forever"
+                                android:singleLine="true"
+                                android:text="Song Title"
+                                android:textAppearance="?attr/textAppearanceHeadlineMedium"
+                                android:textColor="@android:color/white"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.textview.MaterialTextView
+                                android:id="@+id/tvArtistName"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:alpha="0.7"
+                                android:text="Artist Name"
+                                android:textAppearance="?attr/textAppearanceBodyLarge"
+                                android:textColor="@android:color/white" />
+                        </LinearLayout>
+
+                        <!-- Haptics Chip (Top Right) -->
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipSongHaptics"
+                            android:layout_width="wrap_content"
+                            android:layout_height="40dp"
+                            
+                            android:text="Music Haptics"
+                            android:checkable="true"
+                            android:gravity="center"
+                            
+                            app:chipBackgroundColor="#4DFFFFFF"
+                            app:chipSurfaceColor="@android:color/transparent"
+                            app:chipCornerRadius="8dp"
+                            
+                            android:textColor="@android:color/white"
+                            android:textSize="13sp"
+                            android:fontFamily="sans-serif-medium"
+                            
+                            app:chipIcon="@drawable/ic_haptic"
+                            app:chipIconVisible="false"
+                            app:checkedIconVisible="false"
+                            app:checkedIconTint="@android:color/white"
+                            app:chipIconTint="@android:color/white"
+                            app:chipIconSize="18dp"
+                            
+                            app:rippleColor="#1AFFFFFF"
+                            app:chipStrokeWidth="0dp"
+                            
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toTopOf="parent" 
+                            app:layout_constraintBottom_toBottomOf="@id/songInfoContainer"/>
+
+                        <!-- Controls -->
+                        <!-- Progress Head Indicator -->
+                         <View
+                            android:id="@+id/progressHeadIndicator"
+                            android:layout_width="4dp"
+                            android:layout_height="30dp"
+                            android:elevation="4dp"
+                            android:background="@drawable/progress_thumb"
+                            app:layout_constraintStart_toStartOf="@+id/waveProgress"
+                            app:layout_constraintTop_toTopOf="@+id/waveProgress"
+                            app:layout_constraintBottom_toBottomOf="@+id/waveProgress"/>
+
+                        <!-- Wavy Progress -->
+                        <com.google.android.material.progressindicator.LinearProgressIndicator
+                            android:id="@+id/waveProgress"
+                            style="@style/Widget.Material3Expressive.LinearProgressIndicator.Wavy"
+                            android:layout_width="0dp"
+                            android:layout_height="12dp"
+                            android:layout_marginTop="24dp"
+                            android:layout_marginBottom="8dp"
+                            android:max="1000"
+                            app:indicatorColor="@android:color/white"
+                            app:trackColor="#4DFFFFFF"
+                            app:trackCornerRadius="2dp"
+                            app:trackThickness="6dp"
+                            app:wavelength="80dp"
+                            app:waveAmplitude="4dp"
+                            app:layout_constraintTop_toBottomOf="@id/songInfoContainer"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"/>
+
+                        <!-- Hidden SeekBar -->
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/seekBar"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="0dp"
+                            android:valueFrom="0"
+                            android:valueTo="100"
+                            android:value="0"
+                            android:alpha="0"
+                            app:labelBehavior="gone"
+                            app:thumbRadius="8dp"
+                            app:trackHeight="8dp"
+                            app:layout_constraintTop_toTopOf="@id/waveProgress"
+                            app:layout_constraintBottom_toBottomOf="@id/waveProgress"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"/>
+
+                        <!-- Times -->
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tvCurrentTime"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:alpha="0.6"
+                            android:text="0:00"
+                            android:textAppearance="?attr/textAppearanceLabelMedium"
+                            android:textColor="@android:color/white"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toBottomOf="@id/waveProgress"
+                            android:layout_marginTop="4dp" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tvTotalTime"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:alpha="0.6"
+                            android:text="4:20"
+                            android:textAppearance="?attr/textAppearanceLabelMedium"
+                            android:textColor="@android:color/white"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toBottomOf="@id/waveProgress"
+                            android:layout_marginTop="4dp" />
+
+                         <!-- Main Controls -->
+                        <androidx.constraintlayout.widget.ConstraintLayout
+                            android:id="@+id/mainControls"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            app:layout_constraintTop_toBottomOf="@id/tvCurrentTime"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnPrevious"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="64dp"
+                                android:layout_height="64dp"
+                                android:insetLeft="0dp"
+                                android:insetTop="0dp"
+                                android:insetRight="0dp"
+                                android:insetBottom="0dp"
+                                android:contentDescription="Previous"
+                                app:backgroundTint="#33FFFFFF"
+                                app:icon="@drawable/ic_skip_previous"
+                                app:iconSize="32dp"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp"
+                                app:iconTint="@android:color/white"
+                                app:strokeWidth="0dp"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toStartOf="@id/btnPlayPauseToggle"
+                                app:layout_constraintHorizontal_chainStyle="packed"
+                                app:layout_constraintStart_toStartOf="parent"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnPlayPauseToggle"
+                                style="@style/Widget.Material3.Button.IconButton.Filled"
+                                android:layout_width="88dp"
+                                android:layout_height="88dp"
+                                android:layout_marginHorizontal="24dp"
+                                android:insetLeft="0dp"
+                                android:insetTop="0dp"
+                                android:insetRight="0dp"
+                                android:insetBottom="0dp"
+                                android:contentDescription="Play Pause"
+                                app:backgroundTint="@android:color/white"
+                                app:icon="@drawable/ic_play"
+                                app:iconSize="40dp"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp"
+                                app:iconTint="@android:color/black"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toStartOf="@id/btnNext"
+                                app:layout_constraintStart_toEndOf="@id/btnPrevious"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnNext"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="64dp"
+                                android:layout_height="64dp"
+                                android:insetLeft="0dp"
+                                android:insetTop="0dp"
+                                android:insetRight="0dp"
+                                android:insetBottom="0dp"
+                                android:contentDescription="Next"
+                                app:backgroundTint="#33FFFFFF"
+                                app:icon="@drawable/ic_skip_next"
+                                app:iconSize="32dp"
+                                app:iconGravity="textStart"
+                                app:iconPadding="0dp"
+                                app:iconTint="@android:color/white"
+                                app:strokeWidth="0dp"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toEndOf="parent"
+                                app:layout_constraintStart_toEndOf="@id/btnPlayPauseToggle"
+                                app:layout_constraintTop_toTopOf="parent"
+                                app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full" />
+                        </androidx.constraintlayout.widget.ConstraintLayout>
+
+                         <!-- Secondary Controls (Shuffle, Repeat, Fav) - FIXED: Now MaterialCardView -->
+                         <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/secondaryControls"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            app:cardBackgroundColor="#4D6677"
+                            app:cardCornerRadius="32dp"
+                            app:cardElevation="0dp"
+                            app:strokeWidth="0dp"
+                            app:layout_constraintTop_toBottomOf="@id/mainControls"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent">
+
+                             <LinearLayout
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:paddingHorizontal="8dp"
+                                android:paddingVertical="4dp">
+
+                                 <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnShuffle"
+                                    style="@style/Widget.Material3.Button.IconButton"
+                                    android:layout_width="48dp"
+                                    android:layout_height="48dp"
+                                    app:icon="@drawable/ic_shuffle"
+                                    app:iconTint="@android:color/white"/>
+
+                                 <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnRepeat"
+                                    style="@style/Widget.Material3.Button.IconButton"
+                                    android:layout_width="48dp"
+                                    android:layout_height="48dp"
+                                    android:layout_marginHorizontal="8dp"
+                                    app:icon="@drawable/ic_repeat"
+                                    app:iconTint="@android:color/white"/>
+
+                                 <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnFavorite"
+                                    style="@style/Widget.Material3.Button.IconButton"
+                                    android:layout_width="48dp"
+                                    android:layout_height="48dp"
+                                    app:icon="@drawable/ic_favorite_border"
+                                    app:iconTint="@android:color/white"/>
+                             </LinearLayout>
+                         </com.google.android.material.card.MaterialCardView>
+
+                    </androidx.constraintlayout.widget.ConstraintLayout>
+
+                </androidx.core.widget.NestedScrollView>
+
+            </androidx.constraintlayout.widget.ConstraintLayout> <!-- End Full Player -->
+
+            <!-- ================== MINI PLAYER CONTENT (LANDSCAPE OPTIMIZED) ================== -->
+            <!-- Same IDs as portrait, but wider -->
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/miniPlayerContent"
+                android:layout_width="match_parent"
+                android:layout_height="80dp"
+                android:layout_gravity="top"
+                android:paddingHorizontal="16dp">
+
+                <!-- Mini Progress -->
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/miniProgress"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:max="1000"
+                    app:indicatorColor="@color/white"
+                    app:trackColor="@color/white_20"
+                    app:trackThickness="4dp"
+                    app:trackCornerRadius="2dp" />
+
+                <!-- Mini Album Art -->
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/ivMiniAlbumArt"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginTop="10dp"
+                    android:layout_marginBottom="10dp"
+                    android:contentDescription="Album Art"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/default_album_art"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/miniProgress"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Medium" />
+
+                 <!-- Info -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tvMiniSongName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:text="Song Title"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    app:layout_constraintStart_toEndOf="@id/ivMiniAlbumArt"
+                    app:layout_constraintEnd_toStartOf="@id/btnMiniPrevious"
+                    app:layout_constraintTop_toTopOf="@id/ivMiniAlbumArt"
+                    app:layout_constraintBottom_toTopOf="@id/tvMiniArtistName"
+                    app:layout_constraintVertical_chainStyle="packed"/>
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/tvMiniArtistName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="Artist"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    app:layout_constraintStart_toStartOf="@id/tvMiniSongName"
+                    app:layout_constraintEnd_toEndOf="@id/tvMiniSongName"
+                    app:layout_constraintTop_toBottomOf="@id/tvMiniSongName"
+                    app:layout_constraintBottom_toBottomOf="@id/ivMiniAlbumArt"/>
+
+                <!-- Mini Controls -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnMiniPrevious"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    app:icon="@drawable/ic_skip_previous"
+                    app:iconTint="@color/white"
+                    app:layout_constraintEnd_toStartOf="@id/btnMiniPlayPause"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnMiniPlayPause"
+                    style="@style/Widget.Material3.Button.IconButton.Filled"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:icon="@drawable/ic_play"
+                    app:iconTint="@color/white"
+                    app:layout_constraintEnd_toStartOf="@id/btnMiniNext"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    android:layout_marginHorizontal="8dp"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnMiniNext"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    app:icon="@drawable/ic_skip_next"
+                    app:iconTint="@color/white"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent"/>
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_logo">
+
+
+    <!-- Animate inner ring expansion -->
+    <target
+        android:name="ring_inner"
+        android:animation="@animator/ring_inner_anim"/>
+
+    <!-- Animate pulse circle -->
+    <target
+        android:name="pulse_circle"
+        android:animation="@animator/pulse_anim"/>
+
+    <!-- Animate logo scale -->
+    <target
+        android:name="logo_container"
+        android:animation="@animator/logo_scale_anim"/>
+
+    <!-- Animate sound wave bars -->
+    <target
+        android:name="bar_center"
+        android:animation="@animator/wave_center_anim"/>
+
+    <target
+        android:name="bar_inner_left"
+        android:animation="@animator/wave_inner_anim"/>
+
+    <target
+        android:name="bar_inner_right"
+        android:animation="@animator/wave_inner_anim"/>
+
+    <target
+        android:name="bar_outer_left"
+        android:animation="@animator/wave_outer_anim"/>
+
+    <target
+        android:name="bar_outer_right"
+        android:animation="@animator/wave_outer_anim"/>
+
+</animated-vector>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="together">
+    
+    <!-- Pulse circle expands dramatically -->
+    <objectAnimator
+        android:propertyName="scaleX"
+        android:duration="800"
+        android:startOffset="200"
+        android:valueFrom="0.4"
+        android:valueTo="1.0"
+        android:valueType="floatType"
+        android:interpolator="@android:interpolator/overshoot"/>
+    
+    <objectAnimator
+        android:propertyName="scaleY"
+        android:duration="800"
+        android:startOffset="200"
+        android:valueFrom="0.4"
+        android:valueTo="1.0"
+        android:valueType="floatType"
+        android:interpolator="@android:interpolator/overshoot"/>
+
+</set>

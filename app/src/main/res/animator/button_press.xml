@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bouncy press animation for Material 3 Expressive buttons -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="together">
+    
+    <!-- Scale down on press with overshoot -->
+    <objectAnimator
+        android:propertyName="scaleX"
+        android:duration="100"
+        android:valueFrom="1.0"
+        android:valueTo="0.92"
+        android:valueType="floatType"
+        android:interpolator="@android:interpolator/accelerate_decelerate" />
+    
+    <objectAnimator
+        android:propertyName="scaleY"
+        android:duration="100"
+        android:valueFrom="1.0"
+        android:valueTo="0.92"
+        android:valueType="floatType"
+        android:interpolator="@android:interpolator/accelerate_decelerate" />
+</set>
