@@ -1,13 +1,17 @@
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp"/>
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" width="120"/>
 </p>
+
 <h1 align="center">SpatialFlow</h1>
+
 <p align="center">
-  A clean, immersive Android audio player built with Material Design 3, smooth animations, and built-in update support.
+  A modern, lightweight Android music player built with Material Design 3, smooth animations, and a clean immersive UI.
 </p>
+
 <p align="center">
-  <b>Lightweight • Fast • Material You • Open Source</b>
+  <b>Fast • Minimal • Material You • Offline Audio Player • Open Source</b>
 </p>
+
 <p align="center">
   <!-- Downloads & Release -->
   <img src="https://img.shields.io/github/downloads/MythicalSHUB/SpatialFlow/total?color=5C7AEA&style=for-the-badge" />
@@ -15,96 +19,197 @@
   <img src="https://img.shields.io/github/actions/workflow/status/MythicalSHUB/SpatialFlow/release.yml?style=for-the-badge&label=BUILD" />
 
   <!-- Repo Health -->
+
   <img src="https://img.shields.io/github/issues/MythicalSHUB/SpatialFlow?color=EF4444&style=for-the-badge" />
 
   <!-- Tech Stack -->
+
   <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" />
   <img src="https://img.shields.io/badge/Language-Java-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" />
-  <img src="https://img.shields.io/badge/UI-Material_Design-757575?style=for-the-badge&logo=materialdesign&logoColor=white" />
+  <img src="https://img.shields.io/badge/UI-Material_You-757575?style=for-the-badge&logo=materialdesign&logoColor=white" />
 
-  <!-- License & Maintenance -->
+  <!-- License -->
+
   <img src="https://img.shields.io/github/license/MythicalSHUB/SpatialFlow?color=10B981&style=for-the-badge" />
-  <img src="https://img.shields.io/github/last-commit/MythicalSHUB/SpatialFlow?color=8B5CF6&style=for-the-badge" />
 </p>
+
+---
+
+## About SpatialFlow
+
+**SpatialFlow** is a modern Android music player designed for a clean, distraction-free listening experience.
+Built with Material Design 3 (Material You), it delivers smooth animations, dynamic colors, and high-performance local audio playback.
+
+Perfect for users who want:
+
+* Fast and lightweight music playback
+* Clean UI with dynamic theming
+* Offline audio player without clutter
+
+---
 
 ## Features
 
-* Immersive audio playback with a modern UI
-* Material Design 3 + Dynamic Colors
-* Built-in update checker using GitHub Releases
-* Local music playback (MP3 + Android-supported formats)
+* Offline music playback (MP3 + all Android-supported formats)
+* Material You dynamic colors
+* Lightweight and fast performance
+* Built-in app updater (GitHub Releases)
+* Glassmorphism-inspired UI
+* Smooth animations and transitions
+* Local storage music library
+* Optimized for battery efficiency
+
+---
+
+## Tech Stack
+
+| Component    | Details                                                      |
+| ------------ | ------------------------------------------------------------ |
+| Platform     | Android                                                      |
+| Language     | Java + Kotlin Stdlib                                         |
+| UI Framework | Material Design 3                                            |
+| Architecture | Single-module                                                |
+| Audio Engine | Android Media APIs                                           |
+| Libraries    | AndroidX, Material Components, ViewBinding, FFmpeg Audio Kit |
+
+---
 
 ## Requirements
 
-| Component | Version |
-| :--- | :--- |
-| **Min SDK** | 24 (Android 7.0+) |
-| **Target SDK** | 35 (Android 15) |
-| **Languages** | Java + Kotlin Stdlib |
-| **Libraries** | AndroidX, Material Components, ViewBinding, FFmpeg Audio Kit 6.0.2 LTS|
+| Component  | Version           |
+| ---------- | ----------------- |
+| Min SDK    | 24 (Android 7.0+) |
+| Target SDK | 35 (Android 15)   |
+| JDK        | 17                |
+
+---
 
 ## Installation
 
-### Option 1 — Download (Recommended)
+### Download APK (Recommended)
 
-Download the latest APK from the Releases page:
-**[https://github.com/MythicalSHUB/SpatialFlow/releases](https://github.com/MythicalSHUB/SpatialFlow/releases)**
+Latest Release:
+https://github.com/MythicalSHUB/SpatialFlow/releases
 
-> ⚠️ **Upgrading from v1.0.0?**
-> Because of a signing key change, you must uninstall v1.0.0 once.
-> All future updates will install smoothly.
+> If upgrading from v1.0.0, uninstall once due to signing key change.
 
-### Option 2 — Build from Source
+---
+
+### Build from Source
 
 ```bash
-git clone [https://github.com/MythicalSHUB/SpatialFlow.git](https://github.com/MythicalSHUB/SpatialFlow.git)
+git clone https://github.com/MythicalSHUB/SpatialFlow.git
 cd SpatialFlow
 ```
 
-1.  Open the project in Android Studio (JDK 17)
-2.  Wait for Gradle to sync
-3.  Build & run on device/emulator
+1. Open in Android Studio (JDK 17)
+2. Wait for Gradle sync
+3. Build and run on device or emulator
+
+---
 
 ## In-App Updater
 
-SpatialFlow comes with a built-in updater that:
+SpatialFlow includes a built-in updater that:
 
-* Fetches the newest release from GitHub
-* Allows you to download and update directly
-* Uses the system installer for seamless updates
+* Fetches the latest release from GitHub
+* Downloads the APK securely
+* Installs via the system installer
 
-**How to use:**
+Path:
+Settings → Check for Updates
 
-* `Settings` → `Check for updates`
+---
 
-## Technical Overview
+## Screenshots
 
-* **Architecture:** Single-module Android app
-* **UI:** Material 3, ConstraintLayout, ViewBinding
-* **Audio Engine:** Android Media APIs
-* **Update System:** GitHub Releases API JSON parsing
- <!--
-<p >
-  <img src="screenshots/Screenshot_2025-12-10-16-15-29-613_com.codetrio.spatialflow.jpg" width="30%">
-  <img src="screenshots/Screenshot_2025-12-10-16-15-33-324_com.codetrio.spatialflow.jpg" width="30%">
-  <img src="screenshots/Screenshot_2025-12-10-16-15-46-531_com.codetrio.spatialflow.jpg" width="30%">
+<!-- Add your screenshots here -->
+
+<!--
+<p align="center">
+  <img src="screenshots/1.jpg" width="30%">
+  <img src="screenshots/2.jpg" width="30%">
+  <img src="screenshots/3.jpg" width="30%">
 </p>
 -->
 
+---
+
 ## Versioning
 
-SpatialFlow uses simple semantic versioning:
-`vMajor.Minor.Patch`
+Follows semantic versioning:
 
-Example: `v1.2`
+```
+vMajor.Minor.Patch
+```
+
+Example:
+
+```
+v1.2.0
+```
+
+---
 
 ## Contributing
 
-Pull requests and feature suggestions are always welcome.
-If you find a bug or want a new feature, open an **[Issue]**.
+Contributions are welcome.
 
-## Credits
+* Report bugs via Issues
+* Suggest features
+* Submit pull requests
 
-Developed by **Shubham Karande**
+---
 
-Made with passion for clean UI, smooth audio, and modern Android design.
+## Developer
+
+Shubham Karande
+
+Focused on clean UI, smooth UX, and modern Android development.
+
+---
+
+## License (MIT)
+
+```
+MIT License
+
+Copyright (c) 2026 Shubham Karande
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software...
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+```
+
+---
+
+## Support
+
+If you like this project:
+
+* Star the repository
+* Fork it
+* Share it
+
+---
+
+## Keywords
+
+SpatialFlow, SpatialFlow Android App, SpatialFlow Music Player, SpatialFlow Audio Player, SpatialFlow Offline Music Player,
+
+Shubham Karande, Shubham Karande Developer, Apps by Shubham Karande, Shubham Android Developer,
+
+Android Music Player, Offline Music Player Android, Android Audio Player App, Local Music Player Android, MP3 Player Android App,
+
+Material You Music Player, Material Design 3 Android App, Modern Android UI Music Player, Glassmorphism Android UI,
+
+Lightweight Music Player Android, Fast Android Music Player, Clean UI Music Player Android,
+
+Open Source Android Music Player, Java Android Music Player, Android Media Player Java, FFmpeg Android Audio Player,
+
+Best Offline Music Player Android 2026, Free Android Music Player App, Minimal Music Player Android
+
