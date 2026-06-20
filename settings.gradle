@@ -13,6 +13,9 @@ pluginManagement {
         maven { url 'https://jitpack.io' }  // (Optional here but safe)
     }
 }
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
@@ -21,6 +24,7 @@ dependencyResolutionManagement {
         mavenCentral()
         maven { url 'https://jitpack.io' }  // Required for GitHub libs
         maven { url "https://repo1.maven.org/maven2/" } // Backup repo
+        maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
     }
 }
 

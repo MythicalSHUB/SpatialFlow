@@ -53,24 +53,232 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/checksum.txt
           body: |
-            ## SpatialFlow ${{ github.ref_name }}
+            # SpatialFlow 1.8
             
-            ### What's New
-            - Updated app logo
-            - Replaced Toast notifications with Snackbar in player
-            - Added landscape mode support
-            - Added copyright information in Settings page
+            ## The Biggest Update Yet
             
-            ### Installation
-            1. Download `app-release.apk`
-            2. Install on your Android device
-            3. Or use in-app "Check for updates" to auto-update
+            SpatialFlow 1.8 transforms the app from a traditional offline music player into a complete music ecosystem.
             
-            ⚠️ **Note for v1.0.0 users**: You must uninstall the old version first before installing v1.1. Future updates will install seamlessly.
+            ### Major New Features
+            * YouTube Music Streaming
+            * Online Search & Discovery
+            * Karaoke Lyrics
+            * Multi-Provider Lyrics Engine
+            * Music Haptics
+            * Listening Recap
+            * Download Manager
+            * Material 3 Expressive UI
+            * Personal Library
+            * Global Lyrics Support
             
-            ### Technical Details
-            - Min SDK: 24 (Android 7.0+)
-            - Target SDK: 35 (Android 15)
-            - Version Code: 3
+            With online streaming, YouTube Music integration, karaoke lyrics, listening analytics, cloud-powered discovery, and a modern Material 3 Expressive experience, SpatialFlow is now more than just a local music player.
+            
+            ---
+            
+            # Stream Millions of Songs
+            
+            ## Online Music Streaming
+            
+            SpatialFlow is no longer limited to local audio files.
+            
+            ### New in 1.8
+            
+            * Stream music directly from YouTube Music
+            * Search millions of tracks instantly
+            * Browse artists, albums, and playlists
+            * Discover forgotten favorites
+            * Continue listening across sessions
+            
+            # Personal Music Library
+            
+            ## Your Music, Your Collection
+            
+            Build a personal library using both local and online content.
+            
+            ### New Features
+            
+            * Save favorite songs
+            * Create unlimited playlists
+            * Import YouTube Music playlists
+            * Recently played tracks
+            * Listening history
+            * Smart collections
+            * Playlist management
+            
+            # Karaoke Lyrics
+            
+            ## Sing Along Word-by-Word
+            
+            One of the most advanced lyric systems available in any Android music player.
+            
+            ### Karaoke Providers
+            
+            * SyncLRC
+            * Apple Music Karaoke
+            * Spotify Lyrics
+            * LRCLIB
+            * YouTube Music Lyrics
+            * Paxsenix Lyrics
+            
+            ### Features
+            
+            * Word-by-word karaoke highlighting
+            * Real-time lyric synchronization
+            * Automatic provider selection
+            * Lyrics provider switching
+            * Refind lyrics instantly
+            * Multi-source fallback system
+            
+            # Global Lyrics Support
+            
+            ## Lyrics In Your Language
+            
+            Read lyrics from music around the world.
+            
+            ### Supported
+            
+            * English
+            * Hindi
+            * Marathi
+            * Telugu
+            * Japanese
+            * Korean
+            * Tamil
+            * Many more languages
+            
+            ### Features
+            
+            * Native script rendering
+            * Multi-language lyric support
+            * Synchronized lyric highlighting
+            * Better typography and readability
+            
+            # Synced Lyrics Experience
+            
+            ## Follow Every Line Live
+            
+            Lyrics now move perfectly with the music.
+            
+            ### New Features
+            
+            * Live synchronized lyrics
+            * Smooth scrolling
+            * Active line highlighting
+            * Background lyric fading
+            * Enhanced readability
+            * Improved lyric animations
+            
+            # Music Haptics
+            
+            ## Feel The Music
+            
+            SpatialFlow introduces Music Haptics.
+            
+            ### Features
+            
+            * Beat-based vibration feedback
+            * Rhythm synchronization
+            * Bass response haptics
+            * Playback interaction haptics
+            * Adjustable vibration intensity
+            
+            # Material 3 Expressive UI
+            
+            ## Complete UI Redesign
+            
+            SpatialFlow now adopts a modern Material 3 Expressive design language.
+            
+            ### Improvements
+            
+            * Dynamic layouts
+            * Better spacing
+            * Modern controls
+            * Improved navigation
+            * Refined animations
+            * Better visual hierarchy
+            * Tablet optimization
+            * Landscape optimization
+            
+            # Enhanced Audio Effects
+            
+            ## Customize Every Sound
+            
+            Audio processing has been significantly expanded.
+            
+            ### Improvements
+            
+            * Refined Equalizer
+            * Improved Bass Boost
+            * Better audio processing
+            * Cleaner controls
+            * Improved effect stability
+            
+            # Personal Listening Recap
+            
+            ## Your Music Statistics
+            
+            Get insights into your listening habits.
+            
+            ### Features
+            
+            * Total listening time
+            * Most played songs
+            * Top artists
+            * Listening trends
+            * Personal highlights
+            * Music journey recap
+            
+            # Stream Without Limits
+            
+            ## Background Streaming
+            
+            Music keeps playing wherever you are.
+            
+            ### Features
+            
+            * Background playback
+            * Notification controls
+            * Lock screen controls
+            * Media session integration
+            * Seamless playback continuation
+            
+            # One-Click Downloads
+            
+            ## Download Music Instantly
+            
+            Save your favorite tracks for offline listening.
+            
+            ### Features
+            
+            * One-click downloads
+            * Download progress tracking
+            * Download notifications
+            * Offline playback support
+            * Download management
+            
+            # Core Platform Improvements
+            
+            ### New Features
+            
+            * YouTube Music integration
+            * Streaming engine
+            * Search suggestions
+            * Search history
+            * Sleep timer
+            * Streaming quality controls
+            * Queue improvements
+            * Backup & Restore
+            * Feedback & Issue Reporting
+            * GitHub integration
+            * Haptics settings
+            * Audio focus controls
+            
+            ---
+            
+            ## The Result
+            
+            SpatialFlow 1.8 is no longer just an offline music player.
+            
+            It is now a modern hybrid music platform that combines streaming, discovery, lyrics, downloads, personalization, audio effects, and beautiful Android-native design into one seamless experience.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

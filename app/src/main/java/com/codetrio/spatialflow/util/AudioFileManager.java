@@ -53,11 +53,11 @@ public class AudioFileManager {
     }
 
     public static File createOutputFile(Context context, String fileName) {
-        if (!fileName.toLowerCase().endsWith(".m4a")) {
+        if (!fileName.toLowerCase().endsWith(".m4a") && !fileName.toLowerCase().endsWith(".mp3")) {
             fileName = fileName + ".m4a";
         }
 
-        String cleanName = fileName.replaceAll("[^a-zA-Z0-9._-]", "_");
+        String cleanName = fileName.replaceAll("[^a-zA-Z0-9._\\s()\\[\\]-]", "_");
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // Android 10+ - Create temp file in cache for FFmpeg processing
@@ -81,7 +81,7 @@ public class AudioFileManager {
 
     public static void scanFile(Context context, File file) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Copy to MediaStore Downloads for Android 10+
+            // Copy to MediaStore Audio for Android 10+
             copyToMediaStore(context, file);
         } else {
             // Trigger media scanner for older versions
@@ -102,25 +102,42 @@ public class AudioFileManager {
             return;
         }
 
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Downloads.DISPLAY_NAME, sourceFile.getName());
-        values.put(MediaStore.Downloads.MIME_TYPE, "audio/mp4");
-
-        // FIXED: Use Downloads collection with SpatialFlow subfolder
-        values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SpatialFlow");
-
-        values.put(MediaStore.Downloads.IS_PENDING, 1);
-
-        ContentResolver resolver = context.getContentResolver();
-
-        // FIXED: Use Downloads collection instead of Audio
-        Uri collection;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-        } else {
-            collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+        // Get clean metadata from filename
+        String nameWithoutExtension = sourceFile.getName();
+        if (nameWithoutExtension.toLowerCase().endsWith(".mp3")) {
+            nameWithoutExtension = nameWithoutExtension.substring(0, nameWithoutExtension.length() - 4);
+        } else if (nameWithoutExtension.toLowerCase().endsWith(".m4a")) {
+            nameWithoutExtension = nameWithoutExtension.substring(0, nameWithoutExtension.length() - 4);
         }
 
+        // Split by " - " to get Title and Artist
+        String title = nameWithoutExtension;
+        String artist = "Unknown Artist";
+        if (nameWithoutExtension.contains(" - ")) {
+            String[] parts = nameWithoutExtension.split(" - ", 2);
+            title = parts[0].trim();
+            artist = parts[1].trim();
+        }
+
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Audio.Media.DISPLAY_NAME, sourceFile.getName());
+        values.put(MediaStore.Audio.Media.TITLE, title);
+        values.put(MediaStore.Audio.Media.ARTIST, artist);
+        
+        String mimeType = "audio/mp4";
+        if (sourceFile.getName().toLowerCase().endsWith(".mp3")) {
+            mimeType = "audio/mpeg";
+        }
+        values.put(MediaStore.Audio.Media.MIME_TYPE, mimeType);
+
+        // Save under Music/SpatialFlow folder
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            values.put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/SpatialFlow");
+            values.put(MediaStore.Audio.Media.IS_PENDING, 1);
+        }
+
+        ContentResolver resolver = context.getContentResolver();
+        Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         Uri itemUri = resolver.insert(collection, values);
 
         if (itemUri == null) {
@@ -142,11 +159,13 @@ public class AudioFileManager {
                 out.write(buffer, 0, bytesRead);
             }
 
-            values.clear();
-            values.put(MediaStore.Downloads.IS_PENDING, 0);
-            resolver.update(itemUri, values, null, null);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear();
+                values.put(MediaStore.Audio.Media.IS_PENDING, 0);
+                resolver.update(itemUri, values, null, null);
+            }
 
-            Log.d(TAG, "File copied to MediaStore successfully: Downloads/SpatialFlow/" + sourceFile.getName());
+            Log.d(TAG, "File copied to MediaStore successfully: Music/SpatialFlow/" + sourceFile.getName());
 
         } catch (IOException e) {
             Log.e(TAG, "Error copying to MediaStore: " + e.getMessage(), e);

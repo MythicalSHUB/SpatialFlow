@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget Specific Colors - Fallbacks -->
+    <color name="widget_background">#1D1B20</color> <!-- Surface Container High Dark -->
+    <color name="widget_on_background">#E6E1E5</color>
+</resources>

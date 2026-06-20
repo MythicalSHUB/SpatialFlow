@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="chipSortAZ" type="id" />
+    <item name="chipSortRecent" type="id" />
+    <item name="chipSortArtist" type="id" />
+    <item name="chipSortFavorites" type="id" />
+    <item name="spring_anim_scale_x" type="id" />
+    <item name="spring_anim_scale_y" type="id" />
+    <item name="spring_anim_alpha" type="id" />
+    <item name="spring_anim_translation_y" type="id" />
+</resources>

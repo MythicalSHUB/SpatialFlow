@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    >
+
+    <!-- The "Aura" background - blurred album art -->
+    <ImageView
+        android:id="@+id/widget_aura"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.4"
+        android:visibility="visible"
+        android:background="@drawable/widget_background"
+        android:clipToOutline="true"/>
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- Album Art -->
+        <ImageView
+            android:id="@+id/widget_album_art"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/shape_album_art_round"
+            android:clipToOutline="true"
+            android:scaleType="centerCrop"
+            android:src="@drawable/default_album_art" />
+
+        <!-- Play/Pause Button -->
+        <ImageButton
+            android:id="@+id/widget_play_pause"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="12dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Play or Pause"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_play" />
+
+    </RelativeLayout>
+</FrameLayout>

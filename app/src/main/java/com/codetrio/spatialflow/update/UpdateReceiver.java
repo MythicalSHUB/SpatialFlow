@@ -11,6 +11,7 @@ import android.os.Build;
 import android.util.Log;
 import androidx.core.content.FileProvider;
 import java.io.File;
+import java.util.Objects;
 
 public class UpdateReceiver extends BroadcastReceiver {
 
@@ -45,7 +46,7 @@ public class UpdateReceiver extends BroadcastReceiver {
                 String uriString = cursor.getString(uriIndex);
 
                 if (uriString != null) {
-                    File apkFile = new File(Uri.parse(uriString).getPath());
+                    File apkFile = new File(Objects.requireNonNull(Uri.parse(uriString).getPath()));
                     installApk(context, apkFile);
                 }
             }

@@ -1,39 +1,51 @@
+
+
 plugins {
-    id 'com.android.application'
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
+    id("com.github.ben-manes.versions") version "0.54.0"
 }
 
-// Read env vars once (works on CI and locally)
-def ciStoreFile = System.getenv("ANDROID_KEYSTORE_PATH")
-def ciStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-def ciKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
-def ciKeyPassword = System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+// Read credentials from local.properties (secure, gitignored)
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localProps.load(new FileInputStream(localPropsFile))
+}
+
+// Use different variable names to avoid conflict with signing config properties
+def myKeystoreFile = localProps.getProperty('KEYSTORE_FILE') ?: System.getenv("ANDROID_KEYSTORE_PATH")
+def myKeystorePassword = localProps.getProperty('KEYSTORE_PASSWORD') ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+def myKeyAlias = localProps.getProperty('KEY_ALIAS') ?: System.getenv("ANDROID_KEY_ALIAS")
+def myKeyPassword = localProps.getProperty('KEY_PASSWORD') ?: System.getenv("ANDROID_KEY_ALIAS_PASSWORD")
+
+// Check if all required signing properties are available
+def isReleaseSigningReady = myKeystoreFile != null && myKeystorePassword != null && myKeyAlias != null && myKeyPassword != null
 
 android {
     namespace 'com.codetrio.spatialflow'
-    compileSdk 36
+    compileSdk 37
+
+    // Fix for "App not installed" errors when sharing debug APKs
+    project.ext.set("android.injected.testOnly", "false")
 
     defaultConfig {
         applicationId "com.codetrio.spatialflow"
-        minSdk 24
-        targetSdk 35
-        versionCode 6
-        versionName "1.5"
+        minSdk 25
+        targetSdk 37
+        versionCode 8
+        versionName "1.8"
     }
 
     signingConfigs {
         release {
-            if (ciStoreFile != null) {
-                // CI (GitHub Actions)
-                storeFile file(ciStoreFile)
-                storePassword ciStorePassword
-                keyAlias ciKeyAlias
-                keyPassword ciKeyPassword
-            } else {
-                // Local build on your PC
-                storeFile file("C:/Users/shubh/Documents/SpatialFlow.jks")
-                storePassword "Shubham@k124"
-                keyAlias "ShubhamKarande"
-                keyPassword "Shubham@k124"
+            if (isReleaseSigningReady) {
+                storeFile file(myKeystoreFile)
+                storePassword myKeystorePassword
+                keyAlias myKeyAlias
+                keyPassword myKeyPassword
             }
         }
     }
@@ -41,18 +53,24 @@ android {
     buildFeatures {
         viewBinding true
         buildConfig true
+        compose true
     }
 
     buildTypes {
         release {
-            minifyEnabled false
-            shrinkResources false
-            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
+            if (isReleaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
 
         debug {
-            signingConfig signingConfigs.release
+            if (isReleaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
+            debuggable true
         }
     }
 
@@ -61,8 +79,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+
 configurations {
-    all {
+    configureEach {
         exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
         exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
     }
@@ -70,29 +90,77 @@ configurations {
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
+    implementation libs.androidx.compose.foundation
 
-    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
-    implementation 'com.github.bumptech.glide:glide:4.16.0'
-    implementation 'androidx.palette:palette:1.0.0'
+    implementation libs.kotlin.stdlib
+    implementation libs.glide
+    implementation libs.palette
 
 
-    implementation 'com.google.android.material:material:1.14.0-alpha08'
-    implementation 'androidx.core:core-splashscreen:1.0.1'
-    implementation 'androidx.core:core-ktx:1.15.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
+    implementation libs.material.v1140alpha08
+    implementation libs.core.splashscreen
+    implementation libs.core.ktx
+    implementation libs.appcompat.v170
+    implementation libs.constraintlayout.v220
 
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7'
-    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.8.7'
+    implementation libs.lifecycle.viewmodel.ktx
+    implementation libs.lifecycle.livedata.ktx
 
-    implementation 'androidx.viewpager2:viewpager2:1.1.0'
-    implementation 'androidx.media:media:1.7.0'
-    implementation "androidx.navigation:navigation-fragment:2.7.0"
-    implementation "androidx.navigation:navigation-ui:2.7.0"
+    implementation libs.viewpager2
+    implementation libs.swiperefreshlayout
+    implementation libs.navigation.fragment
+    implementation libs.navigation.ui
+    implementation libs.navigation.compose
 
     implementation libs.preference
+    implementation libs.room.common.jvm
+    implementation libs.room.runtime
+    implementation libs.dynamicanimation
 
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+    // Compose
+    implementation platform(libs.compose.bom)
+    implementation libs.compose.ui
+    implementation libs.compose.ui.graphics
+    implementation libs.compose.ui.tooling.preview
+    implementation libs.compose.material3
+    implementation libs.activity.compose
+    implementation libs.lifecycle.viewmodel.compose
+    implementation libs.coil.compose
+    implementation libs.material.icons.extended
+    implementation libs.foundation
+    implementation libs.compose.runtime.livedata
+
+
+    testImplementation libs.junit
+    androidTestImplementation libs.junit.v121
+    androidTestImplementation libs.espresso.core.v361
+
+    // Networking & JSON
+    implementation libs.retrofit
+    implementation libs.converter.gson
+    implementation libs.logging.interceptor
+
+    // Source: https://mvnrepository.com/artifact/net.jthink/jaudiotagger
+    implementation libs.jaudiotagger
+
+    ksp libs.room.compiler
+
+    // Media3 / ExoPlayer
+    implementation libs.media3.exoplayer
+    implementation libs.media3.session
+    implementation libs.media3.common
+    implementation libs.media3.ui
+
+    // NewPipe Extractor — local YouTube stream extraction (no proxy dependency)
+    implementation libs.newpipeextractor
+
+    // Hilt
+    implementation libs.hilt.android
+    ksp libs.hilt.compiler
+
+    // Liquid Glass Effect
+    implementation libs.liquid
+    
+    // Graphics Shapes
+    implementation 'androidx.graphics:graphics-shapes:1.0.1'
 }

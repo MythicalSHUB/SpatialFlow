@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto">
+    <font
+        app:font="@font/google_sans_flex"
+        app:fontStyle="normal"
+        app:fontWeight="400"
+        app:fontVariationSettings="'ROND' 100" />
+</font-family>

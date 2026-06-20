@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget Specific Colors - Material You Dynamic (API 31+) -->
+    <color name="widget_background">@android:color/system_neutral1_900</color>
+    <color name="widget_on_background">@android:color/system_neutral1_100</color>
+</resources>

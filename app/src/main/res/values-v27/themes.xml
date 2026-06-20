@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.SpatialFlow" parent="Theme.Material3.DynamicColors.Light.NoActionBar">
+        <item name="colorSurfaceContainer">@color/md_theme_light_surfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/md_theme_light_surfaceContainerHigh
+        </item>
+        <item name="colorSurfaceContainerHighest">
+            @color/md_theme_light_surfaceContainerHighest
+        </item>
+
+        <item name="shapeAppearanceCornerLarge">
+            @style/ShapeAppearance.SpatialFlow.ExtraLarge
+        </item>
+
+        <item name="colorOutline">@color/md_theme_light_outline</item>
+        <item name="colorOutlineVariant">@color/md_theme_light_outlineVariant</item>
+        <!-- Status Bar -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+
+        <!-- Navigation Bar -->
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">true</item>
+
+        <!-- Edge-to-edge -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="29">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
+
+        <item name="textAppearanceDisplayLarge">
+            @style/TextAppearance.SpatialFlow.DisplayLarge
+        </item>
+        <item name="textAppearanceDisplayMedium">
+            @style/TextAppearance.SpatialFlow.DisplayMedium
+        </item>
+        <item name="textAppearanceDisplaySmall">
+            @style/TextAppearance.SpatialFlow.DisplaySmall
+        </item>
+        <item name="textAppearanceHeadlineLarge">
+            @style/TextAppearance.SpatialFlow.HeadlineLarge
+        </item>
+        <item name="textAppearanceHeadlineMedium">
+            @style/TextAppearance.SpatialFlow.HeadlineMedium
+        </item>
+        <item name="textAppearanceHeadlineSmall">
+            @style/TextAppearance.SpatialFlow.HeadlineSmall
+        </item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.SpatialFlow.TitleLarge
+        </item>
+        <item name="textAppearanceTitleMedium">
+            @style/TextAppearance.SpatialFlow.TitleMedium
+        </item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.SpatialFlow.TitleSmall
+        </item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.SpatialFlow.BodyLarge
+        </item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.SpatialFlow.BodyMedium
+        </item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.SpatialFlow.BodySmall
+        </item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.SpatialFlow.LabelLarge
+        </item>
+        <item name="textAppearanceLabelMedium">
+            @style/TextAppearance.SpatialFlow.LabelMedium
+        </item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.SpatialFlow.LabelSmall
+        </item>
+
+        <!-- Material 3 color scheme -->
+        <item name="colorPrimary">@color/md_theme_light_primary</item>
+        <item name="colorOnPrimary">@color/md_theme_light_onPrimary</item>
+        <item name="colorPrimaryContainer">@color/md_theme_light_primaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/md_theme_light_onPrimaryContainer</item>
+
+        <item name="colorSecondary">@color/md_theme_light_secondary</item>
+        <item name="colorOnSecondary">@color/md_theme_light_onSecondary</item>
+        <item name="colorSecondaryContainer">@color/md_theme_light_secondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/md_theme_light_onSecondaryContainer
+        </item>
+
+        <item name="colorTertiary">@color/md_theme_light_tertiary</item>
+        <item name="colorOnTertiary">@color/md_theme_light_onTertiary</item>
+        <item name="colorTertiaryContainer">@color/md_theme_light_tertiaryContainer</item>
+        <item name="colorOnTertiaryContainer">@color/md_theme_light_onTertiaryContainer
+        </item>
+
+        <item name="android:colorBackground">@color/md_theme_light_background</item>
+        <item name="colorSurface">@color/md_theme_light_surface</item>
+        <item name="colorSurfaceVariant">@color/md_theme_light_surfaceVariant</item>
+        <item name="colorOnSurface">@color/md_theme_light_onSurface</item>
+        <item name="colorOnSurfaceVariant">@color/md_theme_light_onSurfaceVariant</item>
+        <item name="materialButtonStyle">@style/Widget.Material3.Button</item>
+
+        <!-- Custom MaterialSwitch style with checked icon -->
+        <item name="materialSwitchStyle">@style/Widget.SpatialFlow.Switch</item>
+
+        <!-- Typography -->
+
+    </style>
+</resources>

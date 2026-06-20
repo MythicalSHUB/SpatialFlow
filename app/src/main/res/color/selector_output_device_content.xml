@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Active State: Use OnSurface for high contrast on surface container backgrounds -->
+    <item android:state_checked="true" android:color="?attr/colorOnSurface"/>
+    <item android:state_selected="true" android:color="?attr/colorOnSurface"/>
+    <item android:state_activated="true" android:color="?attr/colorOnSurface"/>
+    <!-- Inactive State: Use OnSurface (Standard Text) -->
+    <item android:color="?attr/colorOnSurface"/>
+</selector>

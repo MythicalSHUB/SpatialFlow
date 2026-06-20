@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash Screen Theme (Dynamic Color for API 31+ Dark Mode) -->
+    <style name="Theme.SpatialFlow.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/system_neutral1_900</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo_static_dark</item>
+        <item name="windowSplashScreenAnimationDuration">800</item>
+        <item name="postSplashScreenTheme">@style/Theme.SpatialFlow</item>
+    </style>
+</resources>

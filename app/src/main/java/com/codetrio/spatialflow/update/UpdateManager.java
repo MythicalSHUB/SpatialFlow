@@ -6,20 +6,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Environment;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
-import android.widget.Toast;
 
-import androidx.core.content.FileProvider;
-
-import com.codetrio.spatialflow.R;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
-
-import java.io.File;
 
 public class UpdateManager {
 
@@ -42,8 +34,7 @@ public class UpdateManager {
         showSnackbarAnchored(rootView, "Checking for updates...", Snackbar.LENGTH_SHORT);
 
         new Thread(() -> {
-            GitHubReleaseClient.ReleaseInfo temp = client.getLatestRelease();
-            final GitHubReleaseClient.ReleaseInfo release = temp; // ✅ FIXED (final variable)
+            final GitHubReleaseClient.ReleaseInfo release = client.getLatestRelease(); // ✅ FIXED (final variable)
 
             if (release == null) {
                 runOnUi(() ->
@@ -140,53 +131,6 @@ public class UpdateManager {
     }
 
     // -----------------------------------------------------
-    // INSTALL APK
-    // -----------------------------------------------------
-    public static void installApk(Context ctx, File apkFile) {
-        if (apkFile == null || !apkFile.exists()) {
-            Toast.makeText(ctx, "APK not found", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        Context context = ctx.getApplicationContext();
-
-        // Android O+ unknown sources permission
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (!context.getPackageManager().canRequestPackageInstalls()) {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
-                        .setData(Uri.parse("package:" + context.getPackageName()))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(intent);
-                Toast.makeText(context, "Enable permission and retry.", Toast.LENGTH_LONG).show();
-                return;
-            }
-        }
-
-        try {
-            Uri apkUri;
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                apkUri = FileProvider.getUriForFile(
-                        context,
-                        context.getPackageName() + ".fileprovider",
-                        apkFile
-                );
-            } else {
-                apkUri = Uri.fromFile(apkFile);
-            }
-
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to install APK", e);
-            Toast.makeText(context, "Failed to open installer", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    // -----------------------------------------------------
     // UI HELPERS
     // -----------------------------------------------------
     private void runOnUi(Runnable r) {
@@ -199,19 +143,11 @@ public class UpdateManager {
     }
 
     private Snackbar makeAnchoredSnackbar(View rootView, String msg, int duration) {
-        Snackbar sb = Snackbar.make(rootView, msg, duration);
-
-        Activity a = getActivityIfPossible();
-        if (a != null) {
-            View nav = a.findViewById(R.id.nav_view);
-            if (nav != null) sb.setAnchorView(nav);
-        }
-
-        return sb;
+        return Snackbar.make(rootView, msg, duration);
     }
 
     private void showSnackbarAnchored(View rootView, String msg, int duration) {
-        runOnUi(() -> makeAnchoredSnackbar(rootView, msg, duration).show());
+        runOnUi(() -> com.codetrio.spatialflow.ui.SnackbarController.INSTANCE.showMessage(msg));
     }
 
     private Activity getActivityIfPossible() {
