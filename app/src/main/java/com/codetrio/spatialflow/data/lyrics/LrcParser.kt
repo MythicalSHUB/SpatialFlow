@@ -20,7 +20,12 @@ object LrcParser {
             return emptyList()
         }
 
-        // Use Gramophone's robust parser options: trim=true, multiLine=true
+        val trimmed = lrcContent.trim()
+        val rawTtml = extractTtmlContent(trimmed)
+        if (rawTtml != null) {
+            val ttmlLines = TtmlParser.parse(rawTtml)
+            if (ttmlLines.isNotEmpty()) return ttmlLines
+        }
         val parserOptions = LrcUtils.LrcParserOptions(trim = true, multiLine = true, errorText = null)
         val semanticLyrics = try {
             LrcUtils.parseLyrics(lrcContent, null, parserOptions, null)
@@ -113,5 +118,25 @@ object LrcParser {
         }
 
         return result
+    }
+
+    private fun extractTtmlContent(text: String): String? {
+        if (text.isBlank()) return null
+        if (text.contains("<tt") || text.contains("<?xml") || text.contains("<p begin=") || text.contains("ttm:begin")) {
+            return text
+        }
+        if (text.startsWith("{") && text.contains("content")) {
+            try {
+                val json = com.google.gson.JsonParser.parseString(text).asJsonObject
+                val content = json.get("content")?.asString
+                    ?: json.get("ttmlContent")?.asString
+                    ?: json.get("lrc")?.asString
+                    ?: json.get("syncedLyrics")?.asString
+                if (content != null && (content.contains("<tt") || content.contains("<?xml") || content.contains("<p begin="))) {
+                    return content
+                }
+            } catch (_: Exception) { }
+        }
+        return null
     }
 }

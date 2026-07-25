@@ -9,6 +9,9 @@ object PaxsenixProviderUtils {
                 // sometimes it might return array of lines directly
                 return extractFromLinesArray(jsonElement.asJsonArray)
             }
+            if (jsonElement.isJsonPrimitive && jsonElement.asJsonPrimitive.isString) {
+                return jsonElement.asString
+            }
             return null
         }
         val obj = jsonElement.asJsonObject

@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+
 import android.media.audiofx.BassBoost
 import android.media.audiofx.EnvironmentalReverb
 import android.media.audiofx.Equalizer
@@ -50,9 +51,11 @@ import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import com.codetrio.spatialflow.R
 import com.codetrio.spatialflow.data.innertube.YouTubeMusic
-import com.codetrio.spatialflow.ui.widget.SpatialFlowWidgetProvider
+import com.codetrio.spatialflow.data.innertube.OnlineSong
+import com.codetrio.spatialflow.data.innertube.RelatedSongsResult
 import com.codetrio.spatialflow.util.AudioFileManager
 import com.codetrio.spatialflow.util.FFmpegCommandBuilder
+import com.codetrio.spatialflow.util.SongDownloader
 import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -69,16 +72,21 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
-import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import android.media.AudioAttributes as LegacyAudioAttributes
+
+import javax.inject.Inject
 
 @OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class AudioPlaybackService : MediaSessionService() {
+
+    @Inject
+    lateinit var cacheDataSourceFactory: androidx.media3.datasource.cache.CacheDataSource.Factory
+
+    @Inject
+    lateinit var streamRepository: com.codetrio.spatialflow.domain.repository.StreamRepository
 
     companion object {
         private const val TAG = "AudioPlaybackService"
@@ -92,6 +100,7 @@ class AudioPlaybackService : MediaSessionService() {
         const val ACTION_TOGGLE_FAV = "com.codetrio.spatialflow.ACTION_TOGGLE_FAV"
 
         private const val PREFS_NAME = "AppSettings"
+        private const val KEY_CROSSFADE_ENABLED = "crossfade_enabled"
         private const val KEY_CROSSFADE_DURATION = "crossfade_duration"
         private const val KEY_AUDIO_FOCUS = "audio_focus"
 
@@ -99,18 +108,6 @@ class AudioPlaybackService : MediaSessionService() {
         val CMD_CYCLE_PLAYBACK_MODE = SessionCommand(ACTION_CYCLE_PLAYBACK_MODE, Bundle.EMPTY)
         val CMD_TOGGLE_FAV = SessionCommand(ACTION_TOGGLE_FAV, Bundle.EMPTY)
 
-        private var cache: SimpleCache? = null
-
-        @Synchronized
-        fun getCache(context: Context): SimpleCache {
-            if (cache == null) {
-                val cacheDir = File(context.cacheDir, "media_cache")
-                val evictor = LeastRecentlyUsedCacheEvictor(200 * 1024 * 1024) // 200MB
-                val databaseProvider = StandaloneDatabaseProvider(context)
-                cache = SimpleCache(cacheDir, evictor, databaseProvider)
-            }
-            return cache!!
-        }
     }
 
     private val binder: IBinder = LocalBinder()
@@ -142,23 +139,64 @@ class AudioPlaybackService : MediaSessionService() {
 
     private lateinit var telemetryManager: com.codetrio.spatialflow.data.innertube.YouTubeTelemetryManager
 
-    private var audioManager: AudioManager? = null
-    private var audioFocusRequest: AudioFocusRequest? = null
-    private var isPausedByFocusLoss = false
     private var audioFocusEnabled = true
+    private var autoplayEnabled = true
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var wasPausedByFocusLoss = false
+    private var audioManager: AudioManager? = null
+
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                Log.d(TAG, "Audio focus GAIN: wasPausedByFocusLoss=$wasPausedByFocusLoss")
+                if (!isCrossfading) {
+                    player.volume = currentBaseVolume
+                }
+                if (wasPausedByFocusLoss) {
+                    play()
+                    wasPausedByFocusLoss = false
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                Log.d(TAG, "Audio focus LOSS: pausing playback")
+                wasPausedByFocusLoss = false
+                pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                Log.d(TAG, "Audio focus LOSS_TRANSIENT: pausing playback")
+                if (player.isPlaying || (nextPlayer?.isPlaying == true)) {
+                    wasPausedByFocusLoss = true
+                    pause()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                Log.d(TAG, "Audio focus LOSS_TRANSIENT_CAN_DUCK: ducking volume")
+                if (player.isPlaying) {
+                    player.volume = currentBaseVolume * 0.2f
+                }
+                if (nextPlayer?.isPlaying == true) {
+                    nextPlayer?.volume = currentBaseVolume * 0.2f
+                }
+            }
+        }
+    }
+
 
     private var bassBoostEffect: BassBoost? = null
     private var equalizerEffect: Equalizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
-    private var reverbEffect: EnvironmentalReverb? = null
+    private var reverbIntensity: Float = 1.0f
     private var lastEffectsSessionId = -1
     private var mainProcessor = StereoBalanceProcessor()
     private var nextProcessor: StereoBalanceProcessor? = null
+    private var mainReverbProcessor = ReverbAudioProcessor()
+    private var nextReverbProcessor: ReverbAudioProcessor? = null
 
     private var crossfadeDurationMs = 0
     private var isCrossfading = false
     private var crossfadeNextSongStarted = false
     private var nextPlayer: ExoPlayer? = null
+    private var nextPlayerListener: Player.Listener? = null
     
     private var currentBaseVolume = 1.0f
 
@@ -176,7 +214,7 @@ class AudioPlaybackService : MediaSessionService() {
             } else {
                 handler.removeCallbacks(progressUpdateRunnable)
             }
-            updateWidgetState(isPlaying)
+
         }
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -194,6 +232,7 @@ class AudioPlaybackService : MediaSessionService() {
 
             if (state == Player.STATE_READY) {
                 viewModel?.setPlaybackReady(true)
+                viewModel?.updatePlaybackFormat(getActiveAudioFormat())
                 if (pendingSeekPos >= 0) {
                     player.seekTo(pendingSeekPos)
                     pendingSeekPos = -1
@@ -208,6 +247,36 @@ class AudioPlaybackService : MediaSessionService() {
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "ExoPlayer error: ${error.message}", error)
+            
+            // --- EXPIRED STREAM URL RECOVERY ---
+            var currentCause: Throwable? = error.cause
+            var isExpiredUrl = false
+            while (currentCause != null) {
+                if (currentCause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                    if (currentCause.responseCode == 403 || currentCause.responseCode == 404) {
+                        isExpiredUrl = true
+                        break
+                    }
+                }
+                currentCause = currentCause.cause
+            }
+
+            if (isExpiredUrl) {
+                val currentPos = player.currentPosition
+                val originalUri = originalSourceUri
+                if (originalUri != null && originalUri.scheme == "innertube") {
+                    Log.w(TAG, "Streaming URL expired (HTTP 403/404). Re-resolving seamlessly...")
+                    val wasPlaying = player.playWhenReady
+                    if (wasPlaying) {
+                        loadAndPlay(originalUri, currentPos)
+                    } else {
+                        loadAudio(originalUri, currentPos)
+                    }
+                    return // Bypass skip-to-next fallback
+                }
+            }
+            // ------------------------------------
+
             viewModel?.setIsPlaying(false)
             
             // Auto-recovery: reset player and attempt to skip to next song
@@ -233,6 +302,8 @@ class AudioPlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            applyEffectsFromViewModelAsync()
+            viewModel?.updatePlaybackFormat(getActiveAudioFormat())
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                 Log.d(TAG, "⚡ NATIVE GAPLESS TRANSITION COMPLETED! Resynchronizing UI.")
                 
@@ -289,45 +360,24 @@ class AudioPlaybackService : MediaSessionService() {
                         }
 
                         updateBaseVolume()
-                        handler.postDelayed({ preloadNextSongIntoQueue() }, 300)
+                        handler.postDelayed({ 
+                            preloadNextSongIntoQueue() 
+                            vm.checkQueueAndFetchMore()
+                        }, 300)
                     }
                 }
             }
         }
     }
 
-    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-        when (focusChange) {
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                player.volume = currentBaseVolume
-                if (isPausedByFocusLoss) {
-                    play()
-                    isPausedByFocusLoss = false
-                }
-            }
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                pause()
-                isPausedByFocusLoss = false
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                if (player.isPlaying) {
-                    pause()
-                    isPausedByFocusLoss = true
-                }
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                if (player.isPlaying) player.volume = currentBaseVolume * 0.3f
-            }
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
-        // No-op for behavior in older Media3 or if unresolved
-        audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         handler = Handler(Looper.getMainLooper())
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         telemetryManager = com.codetrio.spatialflow.data.innertube.YouTubeTelemetryManager(
+            context = this,
             httpClient = com.codetrio.spatialflow.data.innertube.InnerTubeClient.httpClient,
             clientProvider = { com.codetrio.spatialflow.data.innertube.InnerTubeClient }
         )
@@ -351,7 +401,7 @@ class AudioPlaybackService : MediaSessionService() {
                 ACTION_NEXT -> playNext()
                 ACTION_TOGGLE_LOOP -> {
                     viewModel?.toggleLoopMode()
-                    updateWidgetState(player.isPlaying)
+
                 }
                 ACTION_CYCLE_PLAYBACK_MODE -> {
                     cycleNotificationPlaybackMode()
@@ -376,43 +426,41 @@ class AudioPlaybackService : MediaSessionService() {
     fun dismissService() {
         player.stop()
         player.clearMediaItems()
-        abandonAudioFocus()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        abandonAudioFocus()
         prefListener?.let {
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(it)
         }
         handler.removeCallbacks(progressUpdateRunnable)
         releaseAudioEffects()
-        abandonAudioFocus()
         
         viewModel?.cleanupBgScope()
         player.removeListener(mainPlayerListener)
         serviceScope.cancel()
         player.release()
+        nextPlayerListener?.let {
+            nextPlayer?.removeListener(it)
+        }
+        nextPlayerListener = null
         nextPlayer?.release()
         mediaSession?.release()
         effectsExecutor.shutdownNow()
     }
 
     private fun initializePlayer() {
-        player = buildExoPlayer(mainProcessor)
-        val attrs = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .build()
-        
-        player.setAudioAttributes(attrs, false) 
-        player.setWakeMode(C.WAKE_MODE_NETWORK) 
-        player.skipSilenceEnabled = false
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        audioFocusEnabled = prefs.getBoolean(KEY_AUDIO_FOCUS, true)
+        Log.d(TAG, "initializePlayer: audioFocusEnabled=$audioFocusEnabled")
+        player = buildExoPlayer(mainProcessor, mainReverbProcessor, false)
         player.addListener(mainPlayerListener)
     }
 
-    private fun buildExoPlayer(processor: StereoBalanceProcessor): ExoPlayer {
+    private fun buildExoPlayer(processor: StereoBalanceProcessor, reverb: ReverbAudioProcessor, handleAudioFocus: Boolean): ExoPlayer {
         val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             override fun buildAudioRenderers(
                 context: Context, extensionRendererMode: Int, mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
@@ -422,26 +470,13 @@ class AudioPlaybackService : MediaSessionService() {
                 val customAudioSink = androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                     .setAudioProcessors(arrayOf(
                         androidx.media3.common.audio.SonicAudioProcessor(),
+                        reverb,
                         processor
                     )).build()
                 super.buildAudioRenderers(context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, customAudioSink, eventHandler, eventListener, out)
             }
         }
         
-        val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0") // CRITICAL: Prevent ExoPlayer 403 blocks
-            .setConnectTimeoutMs(5000)
-            .setReadTimeoutMs(5000)
-            .setAllowCrossProtocolRedirects(true)
-            
-        val upstreamFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
-        
-        // ULTIMATE FIX: Directly feed upstream into cache, ABSOLUTELY NO blocking dynamic resolver architecture inside pipeline
-        val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
-            .setCache(getCache(this))
-            .setUpstreamDataSourceFactory(upstreamFactory)
-            .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-            
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
             .setDataSourceFactory(cacheDataSourceFactory)
 
@@ -455,11 +490,97 @@ class AudioPlaybackService : MediaSessionService() {
             .setPrioritizeTimeOverSizeThresholds(true) // Ensures playback starts instantly on low buffer
             .build()
 
-        return ExoPlayer.Builder(this)
+        val playerInstance = ExoPlayer.Builder(this)
             .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .build()
+
+        val attrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        playerInstance.setAudioAttributes(attrs, handleAudioFocus)
+        playerInstance.setWakeMode(C.WAKE_MODE_NETWORK)
+        playerInstance.skipSilenceEnabled = false
+        return playerInstance
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        if (!audioFocusEnabled) return true
+        if (audioManager == null) {
+            audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        }
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val playbackAttrs = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(playbackAttrs)
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                .build()
+            audioFocusRequest = request
+            audioManager?.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.requestAudioFocus(audioFocusChangeListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        if (audioManager == null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let {
+                audioManager?.abandonAudioFocusRequest(it)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.abandonAudioFocus(audioFocusChangeListener)
+        }
+    }
+
+    fun getActiveAudioFormat(): String {
+        val format = player.audioFormat ?: return ""
+
+        // 1️⃣ sampleMimeType is the most accurate — it names the actual codec
+        val sample = format.sampleMimeType ?: ""
+        val sampleResult = when {
+            sample.contains("opus", ignoreCase = true)                              -> "OPUS"
+            sample.contains("aac", ignoreCase = true) ||
+                    sample.contains("mp4a", ignoreCase = true)                      -> "AAC"
+            sample.contains("mpeg", ignoreCase = true) ||
+                    sample.contains("mp3", ignoreCase = true)                       -> "MP3"
+            sample.contains("flac", ignoreCase = true)                              -> "FLAC"
+            sample.contains("wav", ignoreCase = true) ||
+                    sample.contains("wave", ignoreCase = true)                      -> "WAV"
+            else                                                                    -> ""
+        }
+        if (sampleResult.isNotEmpty()) return sampleResult
+
+        // 2️⃣ codecs string (e.g. "opus", "mp4a.40.2") — present in many WebM/MP4 streams
+        val codecs = format.codecs ?: ""
+        val codecResult = when {
+            codecs.contains("opus", ignoreCase = true)                              -> "OPUS"
+            codecs.contains("mp4a", ignoreCase = true) ||
+                    codecs.contains("aac", ignoreCase = true)                       -> "AAC"
+            codecs.contains("mp3", ignoreCase = true) ||
+                    codecs.contains("mpeg", ignoreCase = true)                      -> "MP3"
+            codecs.contains("flac", ignoreCase = true)                              -> "FLAC"
+            else                                                                    -> ""
+        }
+        if (codecResult.isNotEmpty()) return codecResult
+
+        // 3️⃣ containerMimeType last — least specific (webm/mp4 don't name the codec)
+        val container = format.containerMimeType ?: ""
+        return when {
+            container.contains("opus", ignoreCase = true)                           -> "OPUS"
+            container.contains("ogg", ignoreCase = true)                            -> "OGG"
+            container.contains("aac", ignoreCase = true) ||
+                    container.contains("mp4a", ignoreCase = true)                   -> "AAC"
+            container.contains("flac", ignoreCase = true)                           -> "FLAC"
+            else                                                                    -> ""
+        }
     }
 
     fun setViewModel(vm: PlayerSharedViewModel) {
@@ -519,6 +640,17 @@ class AudioPlaybackService : MediaSessionService() {
         if (uri.scheme == "innertube") {
             val videoId = uri.host ?: return
             
+            // Check if local downloaded file exists
+            val currentSong = viewModel?.songList?.value?.find { it.videoId == videoId }
+            val localUri = currentSong?.let { SongDownloader.getDownloadedSongUri(this, it) }
+            if (localUri != null) {
+                Log.d(TAG, "Redirecting playback of $videoId to local offline file: $localUri")
+                resolveJob?.cancel()
+                resolveTargetSongId = null
+                loadAudioInternal(localUri)
+                return
+            }
+
             // INSTANT CANCELLATION: Kill any in-flight resolution immediately
             resolveJob?.cancel()
             resolveTargetSongId = videoId
@@ -527,8 +659,8 @@ class AudioPlaybackService : MediaSessionService() {
                 Log.d(TAG, "Pre-resolving stream ahead of injector injection: $videoId")
                 
                 // Fetch stream URL only, don't wait for position yet
-                val streamDeferred = async(Dispatchers.IO) { YouTubeMusic.getStreamUrl(videoId).getOrNull() }
-                val streamUrl = streamDeferred.await()
+                val streamResult = streamRepository.getStreamUrl(videoId)
+                val streamUrl = (streamResult as? com.codetrio.spatialflow.domain.error.Result.Success)?.data
                 
                 // Guard: If user clicked another song while we were resolving, abort silently
                 ensureActive()
@@ -544,7 +676,8 @@ class AudioPlaybackService : MediaSessionService() {
                     if (pendingSeekPos <= 0) {
                         launch(Dispatchers.IO) {
                             val position = kotlinx.coroutines.withTimeoutOrNull(2000L.milliseconds) {
-                                YouTubeMusic.getPlaybackPosition(videoId).getOrNull() ?: 0L
+                                val posResult = streamRepository.getPlaybackPosition(videoId)
+                                (posResult as? com.codetrio.spatialflow.domain.error.Result.Success)?.data ?: 0L
                             } ?: return@launch
                             
                             if (position > 2000L) {
@@ -587,9 +720,11 @@ class AudioPlaybackService : MediaSessionService() {
         val nextIndex = vm.getNextSongIndex() 
         if (nextIndex < 0 || nextIndex >= songs.size) {
             // Queue is ending! Proactively fetch related songs to enable infinite loop if current is online!
-            val currentSong = vm.currentSong.value
-            if (currentSong != null && !currentSong.videoId.isNullOrEmpty()) {
-                fetchAndAppendRelatedSongsProactively(currentSong.videoId!!)
+            if (autoplayEnabled) {
+                val currentSong = vm.currentSong.value
+                if (currentSong != null && !currentSong.videoId.isNullOrEmpty()) {
+                    fetchAndAppendRelatedSongsProactively(currentSong.videoId!!)
+                }
             }
             return
         }
@@ -602,7 +737,11 @@ class AudioPlaybackService : MediaSessionService() {
             
             // 1. Check dynamic cache & resolve if online source
             val targetVideoId = nextSong.videoId
-            if (!targetVideoId.isNullOrEmpty()) {
+            val localUri = SongDownloader.getDownloadedSongUri(this@AudioPlaybackService, nextSong)
+            if (localUri != null) {
+                nextUri = localUri
+                Log.d(TAG, "Preloader redirected next song to local offline file: $localUri")
+            } else if (!targetVideoId.isNullOrEmpty()) {
                 val resolvedUrl = withContext(Dispatchers.IO) {
                     YouTubeMusic.getStreamUrl(targetVideoId).getOrNull()
                 }
@@ -620,8 +759,41 @@ class AudioPlaybackService : MediaSessionService() {
                 if (crossfadeDurationMs > 0) {
                     if (nextPlayer == null) {
                         nextProcessor = StereoBalanceProcessor()
-                        nextPlayer = buildExoPlayer(nextProcessor!!)
+                        nextReverbProcessor = ReverbAudioProcessor()
+                        nextPlayer = buildExoPlayer(nextProcessor!!, nextReverbProcessor!!, false)
                     }
+                    // Attach safety error listener to nextPlayer
+                    nextPlayerListener?.let {
+                        nextPlayer?.removeListener(it)
+                    }
+                    val listener = object : Player.Listener {
+                        override fun onPlayerError(error: PlaybackException) {
+                            Log.e(TAG, "Crossfade player error: ${error.message}", error)
+                            handler.post {
+                                if (isCrossfading) {
+                                    nextPlayer?.stop()
+                                    nextPlayer?.release()
+                                    nextPlayer = null
+                                    nextProcessor = null
+                                    nextReverbProcessor = null
+                                    crossfadeAnimator?.cancel()
+                                    crossfadeAnimator = null
+                                    isCrossfading = false
+                                    crossfadeNextSongStarted = false
+                                    player.volume = currentBaseVolume
+                                } else {
+                                    nextPlayer?.stop()
+                                    nextPlayer?.release()
+                                    nextPlayer = null
+                                    nextProcessor = null
+                                    nextReverbProcessor = null
+                                }
+                            }
+                        }
+                    }
+                    nextPlayerListener = listener
+                    nextPlayer?.addListener(listener)
+
                     val nextItem = buildMediaItem(nextUri, nextSong.title, nextSong.artist, nextSong.id.toString())
                     nextPlayer?.setMediaItem(nextItem)
                     nextPlayer?.prepare()
@@ -642,6 +814,10 @@ class AudioPlaybackService : MediaSessionService() {
     fun refreshNativeQueue() {
         // Clear out any currently preloaded next song
         if (crossfadeDurationMs > 0) {
+            nextPlayerListener?.let {
+                nextPlayer?.removeListener(it)
+            }
+            nextPlayerListener = null
             nextPlayer?.stop()
             nextPlayer?.clearMediaItems()
             nextPlayer = null
@@ -656,49 +832,7 @@ class AudioPlaybackService : MediaSessionService() {
     }
 
     private fun fetchAndAppendRelatedSongsProactively(videoId: String) {
-        if (isFetchingRelatedProactively) return
-        isFetchingRelatedProactively = true
-        
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Native queue is ending. Proactively fetching related songs for autoplay loop from YouTube Music...")
-                val result = YouTubeMusic.relatedSongs(videoId)
-                result.onSuccess { related ->
-                    if (related.isNotEmpty()) {
-                        serviceScope.launch(Dispatchers.Main) {
-                            viewModel?.let { vm ->
-                                val existingIds = vm.songList.value.map { it.id }.toSet()
-                                val newSongs = related.map { onlineSong ->
-                                    com.codetrio.spatialflow.model.SongItem.createOnlineSong(
-                                        onlineSong.videoId,
-                                        onlineSong.title,
-                                        onlineSong.artist,
-                                        "", // streamUrl placeholder
-                                        onlineSong.durationMs,
-                                        onlineSong.thumbnailUrl,
-                                        onlineSong.artistId
-                                    )
-                                }.filter { it.id !in existingIds }
-                                
-                                if (newSongs.isNotEmpty()) {
-                                    val newList = ArrayList(vm.songList.value)
-                                    newList.addAll(newSongs)
-                                    vm.setSongList(newList)
-                                    Log.d(TAG, "Successfully pre-appended ${newSongs.size} related songs to autoplay queue.")
-                                    
-                                    // Re-trigger preloading so the newly appended song gets hot-queued immediately!
-                                    preloadNextSongIntoQueue()
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to proactively fetch related songs for loop", e)
-            } finally {
-                isFetchingRelatedProactively = false
-            }
-        }
+        // ViewModel handles single-song autoplay queue appending natively.
     }
     
     /**
@@ -707,17 +841,7 @@ class AudioPlaybackService : MediaSessionService() {
     private fun preCacheFirstChunk(streamUrl: String) {
         serviceScope.launch(Dispatchers.IO) {
             try {
-                val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                    .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0")
-                    .setConnectTimeoutMs(5000)
-                    .setReadTimeoutMs(5000)
-                    .setAllowCrossProtocolRedirects(true)
-                
-                val upstreamFactory = androidx.media3.datasource.DefaultDataSource.Factory(applicationContext, httpDataSourceFactory)
-                val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
-                    .setCache(getCache(applicationContext))
-                    .setUpstreamDataSourceFactory(upstreamFactory)
-                    .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                // Use injected cacheDataSourceFactory
                 
                 val dataSpec = DataSpec.Builder()
                     .setUri(streamUrl)
@@ -740,6 +864,7 @@ class AudioPlaybackService : MediaSessionService() {
     }
 
     fun play() {
+        Log.d(TAG, "play: player.currentMediaItem = ${player.currentMediaItem}, isPlaying = ${player.isPlaying}")
         if (player.currentMediaItem == null) {
             val uri = viewModel?.songUri?.value
             if (uri != null) {
@@ -748,24 +873,32 @@ class AudioPlaybackService : MediaSessionService() {
                 return
             }
         }
-        if (!player.isPlaying && requestAudioFocus()) {
-            player.play()
-            if (isCrossfading) {
-                nextPlayer?.play()
-                crossfadeAnimator?.resume()
+        if (!player.isPlaying) {
+            if (requestAudioFocus()) {
+                player.play()
+                wasPausedByFocusLoss = false
+                if (isCrossfading) {
+                    nextPlayer?.play()
+                    crossfadeAnimator?.resume()
+                }
+            } else {
+                Log.w(TAG, "play: Audio focus request denied.")
             }
-            isPausedByFocusLoss = false
         }
     }
 
     fun pause() {
-        if (player.isPlaying) {
-            player.pause()
-            if (isCrossfading) {
-                nextPlayer?.pause()
-                crossfadeAnimator?.pause()
-            }
+        Log.d(TAG, "pause: isPlaying = ${player.isPlaying}, isCrossfading = $isCrossfading")
+        player.pause()
+        if (isCrossfading) {
+            nextPlayer?.pause()
+            crossfadeAnimator?.pause()
+        }
+        if (::player.isInitialized) {
             com.codetrio.spatialflow.util.PlaybackStateManager.savePosition(applicationContext, player.currentPosition)
+        }
+        if (!wasPausedByFocusLoss) {
+            abandonAudioFocus()
         }
     }
 
@@ -786,6 +919,25 @@ class AudioPlaybackService : MediaSessionService() {
     }
 
     fun seekTo(position: Int) {
+        if (isCrossfading) {
+            nextPlayerListener?.let {
+                nextPlayer?.removeListener(it)
+            }
+            nextPlayerListener = null
+            nextPlayer?.stop()
+            nextPlayer?.release()
+            nextPlayer = null
+            nextProcessor = null
+            nextReverbProcessor = null
+            crossfadeAnimator?.cancel()
+            crossfadeAnimator = null
+            isCrossfading = false
+            crossfadeNextSongStarted = false
+            player.volume = currentBaseVolume
+            
+            // Re-trigger preload after seek settles
+            handler.postDelayed({ preloadNextSongIntoQueue() }, 1000)
+        }
         if (isProcessing) pendingSeekPos = position.toLong()
         player.seekTo(position.toLong())
     }
@@ -794,8 +946,12 @@ class AudioPlaybackService : MediaSessionService() {
     fun playNext() = viewModel?.playNextSong()
 
     private fun buildMediaItem(uri: Uri): MediaItem {
-        val songId = viewModel?.currentSong?.value?.id?.toString() ?: ""
-        return buildMediaItem(uri, currentSongName, viewModel?.currentSong?.value?.artist ?: "Unknown Artist", songId)
+        val currentSong = viewModel?.currentSong?.value
+        val songId = currentSong?.id?.toString() ?: ""
+        if (currentSong != null) {
+            currentSongName = currentSong.title
+        }
+        return buildMediaItem(uri, currentSongName, currentSong?.artist ?: "Unknown Artist", songId)
     }
 
     private fun buildMediaItem(uri: Uri, title: String, artist: String, songId: String = ""): MediaItem {
@@ -812,11 +968,17 @@ class AudioPlaybackService : MediaSessionService() {
             }
         }
         
-        return MediaItem.Builder()
+        val builder = MediaItem.Builder()
             .setUri(uri)
             .setMediaId(songId) // Stable ID for shuffle-mode resync
             .setMediaMetadata(metadataBuilder.build())
-            .build()
+
+        val uriString = uri.toString()
+        if (uriString.contains("googlevideo.com") || uriString.contains("mime=audio/webm") || uriString.contains("webm")) {
+            builder.setMimeType("audio/webm")
+        }
+
+        return builder.build()
     }
 
     fun setSongMetadata(songName: String?, albumArt: Bitmap?) {
@@ -887,129 +1049,38 @@ class AudioPlaybackService : MediaSessionService() {
         }
     }
 
-    fun setBassEnabled(enabled: Boolean) {
-        effectsExecutor.execute {
-            bassBoostEffect?.enabled = enabled
-            applyEffectsFromViewModelAsync()
-        }
-    }
-
-    fun setBassBoost(boostDb: Int) {
-        effectsExecutor.execute {
-            try {
-                equalizerEffect?.let { eq ->
-                    val minLevel = eq.bandLevelRange[0].toInt()
-                    val maxLevel = eq.bandLevelRange[1].toInt()
-                    eq.setBandLevel(0, max(minLevel, min(maxLevel, (boostDb * 100))).toShort())
-                    if (eq.numberOfBands > 1) eq.setBandLevel(1, max(minLevel, min(maxLevel, (boostDb * 45))).toShort())
-                }
-                bassBoostEffect?.setStrength(max(0, min(1000, ((boostDb / 15.0f).pow(1.3f) * 1000).roundToInt())).toShort())
-            } catch (e: Exception) {
-                Log.e(TAG, "Bass boost update failed: ${e.message}")
-            }
-        }
-    }
-
     fun setReverbEnabled(enabled: Boolean) {
         effectsExecutor.execute {
-            reverbEffect?.enabled = enabled
+            mainReverbProcessor.enabled = enabled
+            nextReverbProcessor?.enabled = enabled
             applyEffectsFromViewModelAsync()
+        }
+    }
+
+    fun setReverbIntensity(intensity: Float) {
+        effectsExecutor.execute {
+            reverbIntensity = intensity.coerceIn(0f, 1f)
+            mainReverbProcessor.intensity = reverbIntensity
+            nextReverbProcessor?.intensity = reverbIntensity
+            Log.d(TAG, "Reverb intensity set to: $reverbIntensity")
         }
     }
 
     fun setReverbPreset(preset: Short) {
         effectsExecutor.execute {
-            try {
-                reverbEffect?.let { effect ->
-                    when (preset.toInt()) {
-                        0 -> { // None
-                            effect.decayTime = 100
-                            effect.reverbLevel = -9000
-                        }
-                        1 -> { // Small Room
-                            effect.roomLevel = -1500
-                            effect.roomHFLevel = -100
-                            effect.decayTime = 4000
-                            effect.decayHFRatio = 1200
-                            effect.reflectionsLevel = 0
-                            effect.reflectionsDelay = 50
-                            effect.reverbLevel = 500
-                            effect.reverbDelay = 40
-                            effect.diffusion = 1000
-                            effect.density = 1000
-                        }
-                        2 -> { // Medium Room
-                            effect.roomLevel = -1500
-                            effect.roomHFLevel = 0
-                            effect.decayTime = 6000
-                            effect.decayHFRatio = 1400
-                            effect.reflectionsLevel = 200
-                            effect.reflectionsDelay = 80
-                            effect.reverbLevel = 700
-                            effect.reverbDelay = 60
-                            effect.diffusion = 1000
-                            effect.density = 1000
-                        }
-                        3 -> { // Large Room
-                            effect.roomLevel = -1500
-                            effect.roomHFLevel = 0
-                            effect.decayTime = 8000
-                            effect.decayHFRatio = 1600
-                            effect.reflectionsLevel = 400
-                            effect.reflectionsDelay = 120
-                            effect.reverbLevel = 900
-                            effect.reverbDelay = 80
-                            effect.diffusion = 1000
-                            effect.density = 1000
-                        }
-                        4 -> { // Medium Hall
-                            effect.roomLevel = -1500
-                            effect.roomHFLevel = 0
-                            effect.decayTime = 12000
-                            effect.decayHFRatio = 1800
-                            effect.reflectionsLevel = 600
-                            effect.reflectionsDelay = 160
-                            effect.reverbLevel = 1100
-                            effect.reverbDelay = 100
-                            effect.diffusion = 1000
-                            effect.density = 1000
-                        }
-                        5 -> { // Large Hall
-                            effect.roomLevel = -1500
-                            effect.roomHFLevel = 0
-                            effect.decayTime = 16000
-                            effect.decayHFRatio = 1900
-                            effect.reflectionsLevel = 800
-                            effect.reflectionsDelay = 220
-                            effect.reverbLevel = 1300
-                            effect.reverbDelay = 100
-                            effect.diffusion = 1000
-                            effect.density = 1000
-                        }
-                        6 -> { // Plate / Massive Echo
-                            effect.roomLevel = -1500
-                            effect.roomHFLevel = 0
-                            effect.decayTime = 20000
-                            effect.decayHFRatio = 2000
-                            effect.reflectionsLevel = 1000
-                            effect.reflectionsDelay = 300
-                            effect.reverbLevel = 1600
-                            effect.reverbDelay = 100
-                            effect.diffusion = 1000
-                            effect.density = 1000
-                        }
-                        else -> {}
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Reverb preset update failed: ${e.message}")
-            }
+            val p = preset.toInt()
+            mainReverbProcessor.preset = p
+            nextReverbProcessor?.preset = p
         }
     }
 
     fun setEqualizerEnabled(enabled: Boolean) {
         effectsExecutor.execute { 
-            equalizerEffect?.enabled = enabled
+            try {
+                equalizerEffect?.enabled = enabled
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to toggle equalizer: ${e.message}")
+            }
             applyEffectsFromViewModelAsync()
         }
     }
@@ -1017,7 +1088,6 @@ class AudioPlaybackService : MediaSessionService() {
     fun setEqBandGain(bandIndex: Int, gainDb: Int) {
         effectsExecutor.execute {
             try {
-                if ((bandIndex == 0 || bandIndex == 1) && viewModel?.isBassEnabled?.value == true) return@execute 
                 equalizerEffect?.setBandLevel(bandIndex.toShort(), (gainDb * 100).toShort())
             } catch (_: Exception) {}
         }
@@ -1133,6 +1203,7 @@ class AudioPlaybackService : MediaSessionService() {
         play()
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun loadAudioInternal(uri: Uri, keepPlayingUntilReady: Boolean = false) {
         if (!keepPlayingUntilReady) {
             player.pause()
@@ -1149,10 +1220,15 @@ class AudioPlaybackService : MediaSessionService() {
         serviceScope.launch(Dispatchers.IO) { cleanCache() }
         
         if (isCrossfading) {
+            nextPlayerListener?.let {
+                nextPlayer?.removeListener(it)
+            }
+            nextPlayerListener = null
             nextPlayer?.stop()
             nextPlayer?.release()
             nextPlayer = null
             nextProcessor = null
+            nextReverbProcessor = null
             crossfadeAnimator?.cancel()
             crossfadeAnimator = null
             isCrossfading = false
@@ -1191,10 +1267,7 @@ class AudioPlaybackService : MediaSessionService() {
             player.prepare()
             
             if (shouldAutoPlay) {
-                if (requestAudioFocus()) {
-                    player.play()
-                    isPausedByFocusLoss = false
-                }
+                play()
                 shouldAutoPlay = false
             }
 
@@ -1222,7 +1295,6 @@ class AudioPlaybackService : MediaSessionService() {
                 equalizerEffect = Equalizer(0, sessionId)
                 bassBoostEffect = BassBoost(0, sessionId)
                 loudnessEnhancer = LoudnessEnhancer(sessionId)
-                reverbEffect = EnvironmentalReverb(0, sessionId)
                 lastEffectsSessionId = sessionId
                 
                 handler.post { 
@@ -1242,47 +1314,63 @@ class AudioPlaybackService : MediaSessionService() {
     fun applyEffectsFromViewModelAsync() {
         val vm = viewModel ?: return
         effectsExecutor.execute {
-            if (vm.isEqualizerEnabled.value) {
-                equalizerEffect?.enabled = true
-                setEqBandGain(0, vm.eqBand1.value )
-                setEqBandGain(1, vm.eqBand2.value )
-                setEqBandGain(2, vm.eqBand3.value )
-                setEqBandGain(3, vm.eqBand4.value )
-                setEqBandGain(4, vm.eqBand5.value )
-            }
-
-            if (vm.isBassEnabled.value) {
-                bassBoostEffect?.enabled = true
-                setBassBoost(vm.bassBoost.value)
-            }
-
-            if (vm.isReverbEnabled.value) {
-                reverbEffect?.enabled = true
-                handler.post {
-                    reverbEffect?.let { player.setAuxEffectInfo(androidx.media3.common.AuxEffectInfo(it.id, 1.0f)) }
+            try {
+                if (vm.isEqualizerEnabled.value) {
+                    equalizerEffect?.enabled = true
+                    setEqBandGain(0, vm.eqBand1.value)
+                    setEqBandGain(1, vm.eqBand2.value)
+                    setEqBandGain(2, vm.eqBand3.value)
+                    setEqBandGain(3, vm.eqBand4.value)
+                    setEqBandGain(4, vm.eqBand5.value)
+                } else {
+                    equalizerEffect?.enabled = false
                 }
-                setReverbPreset(vm.reverbPreset.value)
-            } else {
-                reverbEffect?.enabled = false
-                handler.post {
-                    player.setAuxEffectInfo(androidx.media3.common.AuxEffectInfo(0, 0.0f))
-                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to apply Equalizer state: ${e.message}")
             }
 
-            if (vm.isLoudnessEnabled.value) {
-                loudnessEnhancer?.enabled = true
-                setLoudnessGain(vm.loudnessGain.value)
-            } else if (vm.isEqualizerEnabled.value) {
-                // Compensate for system Equalizer global volume attenuation
-                loudnessEnhancer?.enabled = true
-                try { loudnessEnhancer?.setTargetGain(600) } catch (_: Exception) {}
-            } else {
-                loudnessEnhancer?.enabled = false
+            try {
+                val isEnabled = vm.isReverbEnabled.value
+                val intensity = vm.reverbLevel.value.coerceIn(0f, 1f)
+                val preset = vm.reverbPreset.value
+
+                mainReverbProcessor.enabled = isEnabled
+                mainReverbProcessor.intensity = intensity
+                mainReverbProcessor.preset = preset.toInt()
+
+                nextReverbProcessor?.let {
+                    it.enabled = isEnabled
+                    it.intensity = intensity
+                    it.preset = preset.toInt()
+                }
+
+                Log.d(TAG, "Applied Reverb: enabled=$isEnabled, intensity=$intensity, preset=$preset")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to apply Reverb state: ${e.message}")
+            }
+
+            try {
+                if (vm.isLoudnessEnabled.value) {
+                    loudnessEnhancer?.enabled = true
+                    setLoudnessGain(vm.loudnessGain.value)
+                } else if (vm.isEqualizerEnabled.value) {
+                    // Compensate for system Equalizer global volume attenuation
+                    loudnessEnhancer?.enabled = true
+                    try { loudnessEnhancer?.setTargetGain(600) } catch (_: Exception) {}
+                } else {
+                    loudnessEnhancer?.enabled = false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to apply Loudness state: ${e.message}")
             }
 
             handler.postDelayed({
-                setBalance(vm.balance.value)
-                setPlaybackSpeed(vm.playbackSpeed.value, vm.isPitchMatched.value)
+                try {
+                    setBalance(vm.balance.value)
+                    setPlaybackSpeed(vm.playbackSpeed.value, vm.isPitchMatched.value)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to apply Balance/Speed state: ${e.message}")
+                }
             }, 50)
         }
     }
@@ -1291,7 +1379,8 @@ class AudioPlaybackService : MediaSessionService() {
         equalizerEffect?.release(); equalizerEffect = null
         bassBoostEffect?.release(); bassBoostEffect = null
         loudnessEnhancer?.release(); loudnessEnhancer = null
-        reverbEffect?.release(); reverbEffect = null
+        mainReverbProcessor.clearBuffers()
+        nextReverbProcessor?.clearBuffers()
         handler.post {
             viewModel?.let { vm ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1306,10 +1395,11 @@ class AudioPlaybackService : MediaSessionService() {
         progressUpdateRunnable = object : Runnable {
             override fun run() {
                 if (player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
-                    val pos = player.currentPosition
-                    val dur = player.duration
+                    val pos = if (isCrossfading && nextPlayer != null) nextPlayer!!.currentPosition else player.currentPosition
+                    val dur = if (isCrossfading && nextPlayer != null) nextPlayer!!.duration else player.duration
                     viewModel?.setCurrentPosition(pos.toInt())
                     if (dur > 0) viewModel?.setDuration(dur.toInt())
+                    viewModel?.updatePlaybackFormat(getActiveAudioFormat())
                     
                     telemetryManager.updateProgress(pos, dur)
                     
@@ -1319,9 +1409,7 @@ class AudioPlaybackService : MediaSessionService() {
                         com.codetrio.spatialflow.util.PlaybackStateManager.savePosition(applicationContext, pos)
                     }
 
-                    if (player.isPlaying && pos % 200 < 100) {
-                        updateWidgetProgress(pos, dur)
-                    }
+
 
                     if (player.isPlaying && crossfadeDurationMs > 0 && dur > 0 && (dur - pos) <= crossfadeDurationMs && !isCrossfading) {
                         startCrossfadeOut()
@@ -1346,36 +1434,13 @@ class AudioPlaybackService : MediaSessionService() {
         handler.post(progressUpdateRunnable)
     }
 
-    private fun updateWidgetProgress(pos: Long, dur: Long) {
-        var lyricText = "..."
-        viewModel?.syncedLyrics?.value?.let { lyrics ->
-            if (lyrics.isNotEmpty()) {
-                lyricText = SpatialFlowWidgetProvider.findCurrentLyricLine(lyrics, pos.toInt()) ?: "..."
-            }
-        }
-        SpatialFlowWidgetProvider.updateAllWidgetsPartial(this, pos.toInt(), dur.toInt(), lyricText)
-    }
 
-    fun updateWidgetState(isPlaying: Boolean) {
-        viewModel?.let { vm ->
-            val song = vm.currentSong.value
-            val pos = player.currentPosition.toInt()
-            val dur = player.duration.toInt()
-            var lyricText = "..."
-            vm.syncedLyrics.value?.let { lyrics ->
-                if (lyrics.isNotEmpty()) {
-                    lyricText = SpatialFlowWidgetProvider.findCurrentLyricLine(lyrics, pos) ?: "..."
-                }
-            }
-            SpatialFlowWidgetProvider.updateAllWidgets(this, song, isPlaying, pos, dur, lyricText)
-        }
-    }
 
     private fun finishProcessing(success: Boolean) {
         isProcessing = false
         viewModel?.postIsProcessing(false)
         viewModel?.setProcessingProgress(if (success) 100 else 0)
-        updateWidgetState(player.isPlaying)
+
     }
 
     private fun setupMediaSession() {
@@ -1387,7 +1452,24 @@ class AudioPlaybackService : MediaSessionService() {
         )
 
         // Force standard commands to be available so buttons show in System UI
-        val forwardingPlayer = object : ForwardingPlayer(player) {
+        val forwardingPlayer = buildForwardingPlayer(player)
+        val session = MediaSession.Builder(this, forwardingPlayer)
+            .setId(TAG)
+            .setCallback(mediaSessionCallback)
+            .setSessionActivity(pendingIntent)
+            .build()
+            
+        mediaSession = session
+        addSession(session)
+
+        val provider = CustomMediaNotificationProvider(this)
+        provider.setSmallIcon(R.drawable.ic_applogo)
+        setMediaNotificationProvider(provider)
+        updateMediaSessionCustomLayout()
+    }
+
+    private fun buildForwardingPlayer(playerToWrap: ExoPlayer): ForwardingPlayer {
+        return object : ForwardingPlayer(playerToWrap) {
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
                     .add(COMMAND_SEEK_TO_NEXT)
@@ -1418,23 +1500,27 @@ class AudioPlaybackService : MediaSessionService() {
                 }
             }
 
+            override fun play() {
+                this@AudioPlaybackService.play()
+            }
+
+            override fun pause() {
+                this@AudioPlaybackService.pause()
+            }
+
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady) {
+                    this@AudioPlaybackService.play()
+                } else {
+                    this@AudioPlaybackService.pause()
+                }
+            }
+
             override fun seekToNext() { playNext() }
             override fun seekToPrevious() { playPrevious() }
             override fun seekToNextMediaItem() { playNext() }
             override fun seekToPreviousMediaItem() { playPrevious() }
         }
-
-        val session = MediaSession.Builder(this, forwardingPlayer)
-            .setId(TAG)
-            .setCallback(mediaSessionCallback)
-            .setSessionActivity(pendingIntent)
-            .build()
-            
-        mediaSession = session
-        addSession(session)
-
-        setMediaNotificationProvider(CustomMediaNotificationProvider(this))
-        updateMediaSessionCustomLayout()
     }
 
     private enum class NotificationPlaybackMode {
@@ -1462,6 +1548,7 @@ class AudioPlaybackService : MediaSessionService() {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun cycleNotificationPlaybackMode() {
         val vm = viewModel ?: return
         val repeatMode = vm.repeatMode.value
@@ -1485,7 +1572,7 @@ class AudioPlaybackService : MediaSessionService() {
             }
         }
         updateMediaSessionCustomLayout()
-        updateWidgetState(player.isPlaying)
+
     }
 
     fun updateMediaSessionCustomLayout() {
@@ -1532,7 +1619,7 @@ class AudioPlaybackService : MediaSessionService() {
             when (customCommand.customAction) {
                 ACTION_TOGGLE_LOOP -> {
                     viewModel?.toggleLoopMode()
-                    updateWidgetState(player.isPlaying)
+
                 }
                 ACTION_CYCLE_PLAYBACK_MODE -> {
                     cycleNotificationPlaybackMode()
@@ -1569,33 +1656,7 @@ class AudioPlaybackService : MediaSessionService() {
 
 
 
-    private fun requestAudioFocus(): Boolean {
-        if (!audioFocusEnabled) return true
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val playbackAttrs = LegacyAudioAttributes.Builder()
-                .setUsage(LegacyAudioAttributes.USAGE_MEDIA)
-                .setContentType(LegacyAudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(playbackAttrs)
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                .build()
-            audioManager?.requestAudioFocus(audioFocusRequest!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager?.requestAudioFocus(audioFocusChangeListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        }
-    }
 
-    private fun abandonAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager?.abandonAudioFocus(audioFocusChangeListener)
-        }
-    }
 
     private fun startCrossfadeOut() {
         if (isCrossfading || nextPlayer == null) return
@@ -1605,6 +1666,25 @@ class AudioPlaybackService : MediaSessionService() {
         val incomingPlayer = nextPlayer!!
         incomingPlayer.volume = 0f
         incomingPlayer.play()
+
+        // Update the view model's active song index and metadata immediately when crossfade starts
+        viewModel?.let { vm ->
+            val nextIdx = vm.getNextSongIndex()
+            if (nextIdx >= 0) {
+                vm.updateSongIndexOnly(nextIdx)
+                vm.songList.value.getOrNull(nextIdx)?.let { song ->
+                    currentSongName = song.title
+                    if (song.thumbnailUrl != null) {
+                        setSongMetadataByUrl(song.title, song.thumbnailUrl)
+                    } else {
+                        setSongMetadataById(song.title, song.albumId)
+                    }
+                    if (!song.videoId.isNullOrEmpty()) {
+                        telemetryManager.onSongChanged(song.videoId!!, song.duration)
+                    }
+                }
+            }
+        }
 
         crossfadeAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
             duration = crossfadeDurationMs.toLong()
@@ -1629,6 +1709,7 @@ class AudioPlaybackService : MediaSessionService() {
 
         player = newPlayer
         mainProcessor = nextProcessor!!
+        mainReverbProcessor = nextReverbProcessor!!
         
         updateBaseVolume()
 
@@ -1637,13 +1718,28 @@ class AudioPlaybackService : MediaSessionService() {
         oldPlayer.removeListener(mainPlayerListener)
         oldPlayer.release()
 
+        // Remove safety listener from the promoted player
+        nextPlayerListener?.let {
+            newPlayer.removeListener(it)
+        }
+        nextPlayerListener = null
+
         // Re-initialize a fresh nextPlayer for the future
         nextProcessor = StereoBalanceProcessor()
-        nextPlayer = buildExoPlayer(nextProcessor!!)
+        nextReverbProcessor = ReverbAudioProcessor()
+        nextPlayer = buildExoPlayer(nextProcessor!!, nextReverbProcessor!!, false)
 
         // Apply listeners to the new primary player
         player.addListener(mainPlayerListener)
-        mediaSession?.player = player
+        
+        // Promote focus attributes of the new player
+        val attrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        player.setAudioAttributes(attrs, false)
+
+        mediaSession?.player = buildForwardingPlayer(player)
 
         // Re-attach hardware audio effects to the new audio session ID!
         initializeAudioEffectsSafe()
@@ -1651,26 +1747,8 @@ class AudioPlaybackService : MediaSessionService() {
         isCrossfading = false
         crossfadeNextSongStarted = false
 
-        // Inform the view model that a transition has occurred
-        viewModel?.let { vm ->
-            val nextIdx = vm.getNextSongIndex()
-            if (nextIdx >= 0) {
-                vm.updateSongIndexOnly(nextIdx)
-                vm.songList.value.getOrNull(nextIdx)?.let { song ->
-                    currentSongName = song.title
-                    if (song.thumbnailUrl != null) {
-                        setSongMetadataByUrl(song.title, song.thumbnailUrl)
-                    } else {
-                        setSongMetadataById(song.title, song.albumId)
-                    }
-                    if (!song.videoId.isNullOrEmpty()) {
-                        telemetryManager.onSongChanged(song.videoId!!, song.duration)
-                    }
-                }
-                // Preload the next song into the newly initialized nextPlayer
-                handler.postDelayed({ preloadNextSongIntoQueue() }, 300)
-            }
-        }
+        // Preload the next song into the newly initialized nextPlayer
+        handler.postDelayed({ preloadNextSongIntoQueue() }, 300)
     }
 
     private fun handlePlaybackCompleted() {
@@ -1690,18 +1768,51 @@ class AudioPlaybackService : MediaSessionService() {
 
     private fun loadAudioPreferences() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        crossfadeDurationMs = (prefs.getFloat(KEY_CROSSFADE_DURATION, 0f) * 1000).toInt()
+        val enabled = prefs.getBoolean(KEY_CROSSFADE_ENABLED, false)
+        crossfadeDurationMs = if (enabled) {
+            (prefs.getFloat(KEY_CROSSFADE_DURATION, 3f) * 1000).toInt()
+        } else {
+            0
+        }
         audioFocusEnabled = prefs.getBoolean(KEY_AUDIO_FOCUS, true)
+        autoplayEnabled = prefs.getBoolean("autoplay_enabled", true)
+        Log.d(TAG, "loadAudioPreferences: audioFocusEnabled=$audioFocusEnabled, crossfadeDurationMs=$crossfadeDurationMs, autoplayEnabled=$autoplayEnabled")
+
+        if (crossfadeDurationMs == 0) {
+            nextPlayerListener?.let {
+                nextPlayer?.removeListener(it)
+            }
+            nextPlayerListener = null
+            nextPlayer?.stop()
+            nextPlayer?.release()
+            nextPlayer = null
+            nextProcessor = null
+            nextReverbProcessor = null
+        }
+        
+        val attrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        if (::player.isInitialized) {
+            player.setAudioAttributes(attrs, false)
+        }
+        nextPlayer?.setAudioAttributes(attrs, false)
     }
 
     private fun setupPreferenceListener() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (KEY_CROSSFADE_DURATION == key || KEY_AUDIO_FOCUS == key) loadAudioPreferences()
+            Log.d(TAG, "Preference changed: $key")
+            if (KEY_CROSSFADE_DURATION == key || KEY_CROSSFADE_ENABLED == key || KEY_AUDIO_FOCUS == key || "autoplay_enabled" == key) {
+                loadAudioPreferences()
+            }
             if (com.codetrio.spatialflow.ui.SettingsViewModel.KEY_VOLUME_NORMALIZATION_ENABLED == key || 
                 com.codetrio.spatialflow.ui.SettingsViewModel.KEY_TARGET_LUFS == key) {
                 updateBaseVolume()
             }
         }
+        prefs.registerOnSharedPreferenceChangeListener(prefListener)
     }
 
     fun getPlayerInstance(): ExoPlayer = player
@@ -1874,7 +1985,7 @@ class AudioPlaybackService : MediaSessionService() {
             Log.d(TAG, "Notification update: isPlaying=$isPlaying, song=$currentSongName")
             
             // Explicitly set channel and properties to match Java example exactly
-            notificationBuilder.setSmallIcon(R.drawable.ic_music_note)
+            // The small icon is set on the provider instance in setupMediaSession
             notificationBuilder.setContentTitle(currentSongName)
             notificationBuilder.setContentText(if (is8DEnabled) "🎧 8D Audio" else "Normal Playback")
             notificationBuilder.setSubText("SpatialFlow")
@@ -1951,7 +2062,7 @@ class AudioPlaybackService : MediaSessionService() {
         if (song.lufs != null) {
             Log.d(TAG, "updateBaseVolume: Using pre-cached LUFS (${song.lufs})")
             applyLufsGain(song.lufs!!, targetLufs)
-        } else if (song.videoId.isNullOrEmpty() && !song.path.isNullOrEmpty() && song.path?.startsWith("http") == false) {
+        } else if (song.videoId.isNullOrEmpty() && !song.path.isNullOrEmpty() && song.path.startsWith("http") == false) {
             // Local file with missing LUFS metadata
             Log.d(TAG, "updateBaseVolume: Analyzing local file LUFS for ${song.path}")
             serviceScope.launch(Dispatchers.IO) {
@@ -2015,4 +2126,290 @@ class AudioPlaybackService : MediaSessionService() {
             player.volume = currentBaseVolume
         }
     }
+
+    private data class FilterBank(
+        var leftCombs: Array<CombFilter> = emptyArray(),
+        var rightCombs: Array<CombFilter> = emptyArray(),
+        var leftAllpasses: Array<AllpassFilter> = emptyArray(),
+        var rightAllpasses: Array<AllpassFilter> = emptyArray()
+    ) {
+        fun clearBuffers() {
+            leftCombs.forEach { it.clear() }
+            rightCombs.forEach { it.clear() }
+            leftAllpasses.forEach { it.clear() }
+            rightAllpasses.forEach { it.clear() }
+        }
+    }
+
+    inner class ReverbAudioProcessor : androidx.media3.common.audio.BaseAudioProcessor() {
+        @Volatile var enabled = false
+        @Volatile var intensity = 0f
+        @Volatile var preset = 0 // 0=None, 1=Room, 2=Hall, 3=Stadium, 4=Plate, 5=Spring
+
+        private var activeSampleRate = 44100
+        private var activePreset = -1
+        
+        @Volatile
+        private var filterSwitch = false
+        private var filterSetA: FilterBank? = null
+        private var filterSetB: FilterBank? = null
+
+        private val baseCombSizes = intArrayOf(1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617)
+        private val baseAllpassSizes = intArrayOf(556, 441, 341, 225)
+        private val stereoSpread = 23
+
+        fun clearBuffers() {
+            filterSetA?.clearBuffers()
+            filterSetB?.clearBuffers()
+        }
+
+        private fun updateEngineParameters(sampleRate: Int) {
+            if (sampleRate == activeSampleRate && preset == activePreset && (filterSetA != null || filterSetB != null)) {
+                return
+            }
+            activeSampleRate = sampleRate
+            activePreset = preset
+
+            val rateScale = sampleRate.toFloat() / 44100f
+
+            val (sizeScale, feedback, damp) = when (preset) {
+                1 -> Triple(0.5f, 0.72f, 0.45f)   // Room: small size, high damp
+                2 -> Triple(1.0f, 0.84f, 0.25f)   // Hall: medium size, balanced damp
+                3 -> Triple(2.0f, 0.92f, 0.15f)   // Stadium: massive size, low damp
+                4 -> Triple(0.85f, 0.80f, 0.08f)  // Plate: bright, very low damp
+                5 -> Triple(0.75f, 0.85f, 0.35f)  // Spring: fluttery, warm
+                else -> Triple(1.0f, 0.5f, 0.2f)
+            }
+
+            val newFilters = FilterBank()
+
+            newFilters.leftCombs = Array(baseCombSizes.size) { i ->
+                val size = (baseCombSizes[i] * rateScale * sizeScale).toInt().coerceAtLeast(10)
+                CombFilter(size, feedback, damp)
+            }
+            newFilters.rightCombs = Array(baseCombSizes.size) { i ->
+                val size = ((baseCombSizes[i] + stereoSpread) * rateScale * sizeScale).toInt().coerceAtLeast(10)
+                CombFilter(size, feedback, damp)
+            }
+
+            newFilters.leftAllpasses = Array(baseAllpassSizes.size) { i ->
+                val size = (baseAllpassSizes[i] * rateScale * sizeScale).toInt().coerceAtLeast(5)
+                AllpassFilter(size, 0.5f)
+            }
+            newFilters.rightAllpasses = Array(baseAllpassSizes.size) { i ->
+                val size = ((baseAllpassSizes[i] + stereoSpread) * rateScale * sizeScale).toInt().coerceAtLeast(5)
+                AllpassFilter(size, 0.5f)
+            }
+            
+            // Atomic swap
+            if (filterSwitch) {
+                filterSetA = newFilters
+            } else {
+                filterSetB = newFilters
+            }
+            filterSwitch = !filterSwitch
+        }
+
+        override fun onConfigure(inputAudioFormat: androidx.media3.common.audio.AudioProcessor.AudioFormat): androidx.media3.common.audio.AudioProcessor.AudioFormat {
+            if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
+                throw androidx.media3.common.audio.AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+            }
+            return androidx.media3.common.audio.AudioProcessor.AudioFormat(inputAudioFormat.sampleRate, 2, inputAudioFormat.encoding)
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun onFlush() {
+            clearBuffers()
+        }
+
+        override fun onReset() {
+            filterSetA = null
+            filterSetB = null
+        }
+
+        private val reusablePair = SamplePair()
+
+        private fun processSample(left: Float, right: Float): SamplePair {
+            val activeFilters = if (filterSwitch) filterSetB else filterSetA
+            
+            if (activeFilters == null || activeFilters.leftCombs.isEmpty()) {
+                reusablePair.left = left
+                reusablePair.right = right
+                return reusablePair
+            }
+            
+            var combOutL = 0f
+            var combOutR = 0f
+            for (i in activeFilters.leftCombs.indices) {
+                combOutL += activeFilters.leftCombs[i].process(left)
+                combOutR += activeFilters.rightCombs[i].process(right)
+            }
+
+            // Attenuate parallel comb filter sum (1/8) to keep level safe and avoid clipping
+            combOutL *= 0.125f
+            combOutR *= 0.125f
+
+            var apfOutL = combOutL
+            var apfOutR = combOutR
+            for (i in activeFilters.leftAllpasses.indices) {
+                apfOutL = activeFilters.leftAllpasses[i].process(apfOutL)
+                apfOutR = activeFilters.rightAllpasses[i].process(apfOutR)
+            }
+
+            // Mix original (dry) and reverberated (wet) signal based on intensity
+            val wet = intensity * 0.25f
+            val dry = 1.0f - (intensity * 0.15f)
+            
+            reusablePair.left = softClip(left * dry + apfOutL * wet)
+            reusablePair.right = softClip(right * dry + apfOutR * wet)
+
+            return reusablePair
+        }
+
+        private fun softClip(x: Float): Float {
+            return when {
+                x > 0.7f -> {
+                    val diff = x - 0.7f
+                    0.7f + 0.3f * (diff / (0.3f + diff))
+                }
+                x < -0.7f -> {
+                    val diff = -x - 0.7f
+                    -0.7f - 0.3f * (diff / (0.3f + diff))
+                }
+                else -> x
+            }
+        }
+
+        override fun queueInput(inputBuffer: ByteBuffer) {
+            val isStereo = inputAudioFormat.channelCount == 2
+            val is16Bit = inputAudioFormat.encoding == C.ENCODING_PCM_16BIT
+            val bytesPerSample = if (is16Bit) 2 else 4
+            val inputFrameSize = bytesPerSample * inputAudioFormat.channelCount
+            val frameCount = inputBuffer.remaining() / inputFrameSize
+            val outBuffer = replaceOutputBuffer(frameCount * 2 * bytesPerSample)
+
+            if (!enabled || intensity <= 0.01f || preset == 0) {
+                if (is16Bit) {
+                    while (inputBuffer.hasRemaining()) {
+                        val left = inputBuffer.short
+                        val right = if (isStereo) inputBuffer.short else left
+                        outBuffer.putShort(left)
+                        outBuffer.putShort(right)
+                    }
+                } else {
+                    while (inputBuffer.hasRemaining()) {
+                        val left = inputBuffer.float
+                        val right = if (isStereo) inputBuffer.float else left
+                        outBuffer.putFloat(left)
+                        outBuffer.putFloat(right)
+                    }
+                }
+                outBuffer.flip()
+                return
+            }
+
+            updateEngineParameters(inputAudioFormat.sampleRate)
+
+            if (is16Bit) {
+                while (inputBuffer.hasRemaining()) {
+                    val leftShort = inputBuffer.short
+                    val rightShort = if (isStereo) inputBuffer.short else leftShort
+                    
+                    val leftIn = leftShort.toFloat() / 32768.0f
+                    val rightIn = rightShort.toFloat() / 32768.0f
+                    
+                    val outPair = processSample(leftIn, rightIn)
+                    
+                    val leftClamped = (outPair.left * 32768.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
+                    val rightClamped = (outPair.right * 32768.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
+                    
+                    outBuffer.putShort(leftClamped)
+                    outBuffer.putShort(rightClamped)
+                }
+            } else {
+                while (inputBuffer.hasRemaining()) {
+                    val leftIn = inputBuffer.float
+                    val rightIn = if (isStereo) inputBuffer.float else leftIn
+                    
+                    val outPair = processSample(leftIn, rightIn)
+                    
+                    outBuffer.putFloat(outPair.left)
+                    outBuffer.putFloat(outPair.right)
+                }
+            }
+            outBuffer.flip()
+        }
+    }
 }
+
+private fun softClip(sample: Float): Float {
+    return when {
+        sample > 1.0f -> 0.6666f * sample / (sample + 1.5f)
+        sample < -1.0f -> 0.6666f * sample / (-sample + 1.5f)
+        else -> sample
+    }
+}
+
+private class CombFilter(val size: Int, feedbackCoeff: Float, dampingCoeff: Float) {
+    private val buffer = FloatArray(size)
+    private var index = 0
+    private var lastOutput = 0f
+    
+    // Clamp feedback to prevent instability
+    private val feedback = feedbackCoeff.coerceIn(0.0f, 0.95f)
+    private val damp = dampingCoeff.coerceIn(0.0f, 0.99f)
+    
+    // Subnormal number prevention (flush-to-zero)
+    private val minAmp = 1e-10f
+
+    fun process(input: Float): Float {
+        val output = buffer[index]
+        
+        // Apply damping filter with state clamping
+        lastOutput = lastOutput * (1.0f - damp) + output * damp
+        lastOutput = if (kotlin.math.abs(lastOutput) < minAmp) 0f else lastOutput
+        
+        // Feedback loop with amplitude ceiling to prevent explosion
+        val feedbackSample = (lastOutput * feedback).coerceIn(-1.0f, 1.0f)
+        
+        buffer[index] = (input + feedbackSample).coerceIn(-1.5f, 1.5f)
+        
+        index = (index + 1) % size
+        return output
+    }
+    
+    fun clear() {
+        buffer.fill(0f)
+        lastOutput = 0f
+        index = 0
+    }
+}
+
+private class AllpassFilter(val size: Int, val feedback: Float) {
+    private val buffer = FloatArray(size)
+    private var index = 0
+    private val minAmp = 1e-10f
+
+    fun process(input: Float): Float {
+        val bufOut = buffer[index]
+        
+        val output = -input + bufOut
+        
+        buffer[index] = (input + (bufOut * feedback)).coerceIn(-1.5f, 1.5f)
+        
+        index = (index + 1) % size
+        
+        return if (kotlin.math.abs(output) < minAmp) 0f else output
+    }
+    
+    fun clear() {
+        buffer.fill(0f)
+        index = 0
+    }
+}
+
+private class SamplePair {
+    var left = 0f
+    var right = 0f
+}
+

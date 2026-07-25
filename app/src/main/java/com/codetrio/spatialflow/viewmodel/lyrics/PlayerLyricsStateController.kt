@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * Kotlin + StateFlow implementation for modern reactive architecture.
  */
 class PlayerLyricsStateController(private val logTag: String) {
-    private var activeLyricsSongId: Long? = null
+    private var activeLyricsTrackKey: String? = null
 
     private val _syncedLyrics = MutableStateFlow<List<LyricLine>?>(null)
     val syncedLyrics: StateFlow<List<LyricLine>?> = _syncedLyrics.asStateFlow()
@@ -47,12 +47,22 @@ class PlayerLyricsStateController(private val logTag: String) {
 
     val shouldShowLyrics: Boolean get() = _isLyricsModeEnabled.value
 
-    fun setLyricsModeEnabled(enabled: Boolean) {
+    private fun getTrackKey(song: SongItem?): String? {
+        if (song == null) return null
+        return song.videoId ?: song.path ?: song.id.toString()
+    }
+
+    fun setLyricsModeEnabled(enabled: Boolean, context: Context? = null, song: SongItem? = null) {
         _isLyricsModeEnabled.value = enabled
+        if (enabled && context != null && song != null) {
+            if (_syncedLyrics.value.isNullOrEmpty() && _plainLyrics.value.isNullOrBlank() && _lyricsState.value != LyricsState.FETCHING) {
+                fetchLyrics(context, song)
+            }
+        }
     }
 
     fun clearForSongChange(song: SongItem? = null) {
-        activeLyricsSongId = song?.id
+        activeLyricsTrackKey = getTrackKey(song)
         _syncedLyrics.value = null
         _plainLyrics.value = null
         _error.value = null
@@ -67,7 +77,8 @@ class PlayerLyricsStateController(private val logTag: String) {
         if (song == null) return
 
         val repository = LyricsRepository.getInstance(context)
-        activeLyricsSongId = song.id
+        val trackKey = getTrackKey(song)
+        activeLyricsTrackKey = trackKey
         repository.cancelCurrent()
 
         // Reset state
@@ -88,7 +99,7 @@ class PlayerLyricsStateController(private val logTag: String) {
             song.duration,
             song.path,
             createCallback(
-                requestSongId = song.id,
+                requestTrackKey = trackKey,
                 keepExistingLyricsOnNotFound = true,
                 instrumentalMessage = "Instrumental track - no vocals",
                 logUpgrades = true
@@ -100,7 +111,8 @@ class PlayerLyricsStateController(private val logTag: String) {
     fun retryLyrics(context: Context, song: SongItem?) {
         if (song == null) return
 
-        activeLyricsSongId = song.id
+        val trackKey = getTrackKey(song)
+        activeLyricsTrackKey = trackKey
 
         // Reset state
         _syncedLyrics.value = null
@@ -120,7 +132,7 @@ class PlayerLyricsStateController(private val logTag: String) {
             song.duration,
             song.path,
             createCallback(
-                requestSongId = song.id,
+                requestTrackKey = trackKey,
                 keepExistingLyricsOnNotFound = false,
                 instrumentalMessage = "Instrumental track",
                 logUpgrades = false
@@ -129,36 +141,48 @@ class PlayerLyricsStateController(private val logTag: String) {
         )
     }
 
-    fun selectProvider(providerName: String) {
+    fun selectProvider(providerName: String, context: Context? = null, song: SongItem? = null) {
         val result = _providerResults.value[providerName]
         if (result != null && result.hasLyrics()) {
             _selectedProvider.value = providerName
             applyLyricsResult(result)
             _lyricsState.value = LyricsState.SUCCESS
             _error.value = null
+        } else if (context != null && song != null) {
+            retryLyrics(context, song)
         }
     }
 
     fun determineBestResult(results: Map<String, LyricsResult>): LyricsResult? {
         val candidates = results.values
 
+        // Ensure isWordByWord flag is accurately populated from content heuristics
+        candidates.forEach { candidate ->
+            if (!candidate.isWordByWord && !candidate.syncedLyrics.isNullOrEmpty() &&
+                candidate.syncedLyrics!!.contains(Regex("""<\d+:\d{2}[.:]\d+>"""))
+            ) {
+                candidate.isWordByWord = true
+            }
+        }
+
         // First priority: Karaoke (word-by-word)
-        val karaokeCandidates = candidates.filter { it.isWordByWord }
+        val karaokeCandidates = candidates.filter { it.isWordByWord && it.hasLyrics() }
         if (karaokeCandidates.isNotEmpty()) {
             return karaokeCandidates.maxWithOrNull(
-                compareBy<LyricsResult> { it.providerName == "SyncLRC" }
+                compareBy<LyricsResult> { it.providerName?.startsWith("BetterLyrics") == true }
+                    .thenBy { it.providerName == "SyncLRC" }
                     .thenBy { it.confidence }
             )
         }
 
         // Second priority: Synced
-        val syncedCandidates = candidates.filter { it.isSynced }
+        val syncedCandidates = candidates.filter { it.isSynced && it.hasLyrics() }
         if (syncedCandidates.isNotEmpty()) {
             return syncedCandidates.maxByOrNull { it.confidence }
         }
 
         // Third priority: Plain lyrics
-        val plainCandidates = candidates.filter { !it.isSynced && !it.isWordByWord && !it.isInstrumental }
+        val plainCandidates = candidates.filter { !it.isSynced && !it.isWordByWord && !it.isInstrumental && it.hasLyrics() }
         if (plainCandidates.isNotEmpty()) {
             return plainCandidates.maxByOrNull { it.confidence }
         }
@@ -168,14 +192,14 @@ class PlayerLyricsStateController(private val logTag: String) {
     }
 
     private fun createCallback(
-        requestSongId: Long,
+        requestTrackKey: String?,
         keepExistingLyricsOnNotFound: Boolean,
         instrumentalMessage: String,
         logUpgrades: Boolean
     ): LyricsRepository.ExtendedLyricsCallback {
         return object : LyricsRepository.ExtendedLyricsCallback {
             override fun onLyricsFound(result: LyricsResult) {
-                if (!isActiveLyricsRequest(requestSongId)) return
+                if (!isActiveLyricsRequest(requestTrackKey)) return
 
                 if (_selectedProvider.value == null) {
                     applyLyricsResult(result)
@@ -187,7 +211,7 @@ class PlayerLyricsStateController(private val logTag: String) {
             }
 
             override fun onLyricsUpgraded(betterResult: LyricsResult) {
-                if (!isActiveLyricsRequest(requestSongId)) return
+                if (!isActiveLyricsRequest(requestTrackKey)) return
 
                 if (_selectedProvider.value == null && !betterResult.syncedLyrics.isNullOrEmpty()) {
                     val lines = LrcParser.parse(betterResult.syncedLyrics)
@@ -202,7 +226,7 @@ class PlayerLyricsStateController(private val logTag: String) {
             }
 
             override fun onLyricsNotFound(reason: String) {
-                if (!isActiveLyricsRequest(requestSongId)) return
+                if (!isActiveLyricsRequest(requestTrackKey)) return
 
                 if (keepExistingLyricsOnNotFound && hasLyricsData()) return
 
@@ -215,7 +239,7 @@ class PlayerLyricsStateController(private val logTag: String) {
             }
 
             override fun onInstrumental() {
-                if (!isActiveLyricsRequest(requestSongId)) return
+                if (!isActiveLyricsRequest(requestTrackKey)) return
 
                 if (_syncedLyrics.value.isNullOrEmpty() && _plainLyrics.value.isNullOrEmpty()) {
                     _lyricsState.value = LyricsState.FAILED
@@ -226,13 +250,13 @@ class PlayerLyricsStateController(private val logTag: String) {
             }
 
             override fun onSearchStatus(message: String) {
-                if (!isActiveLyricsRequest(requestSongId)) return
+                if (!isActiveLyricsRequest(requestTrackKey)) return
 
                 _statusMessage.value = message
             }
 
             override fun onProviderResult(providerName: String, result: LyricsResult?) {
-                if (!isActiveLyricsRequest(requestSongId)) return
+                if (!isActiveLyricsRequest(requestTrackKey)) return
 
                 val currentMap = _providerResults.value.toMutableMap()
                 if (result != null) {
@@ -259,8 +283,8 @@ class PlayerLyricsStateController(private val logTag: String) {
         }
     }
 
-    private fun isActiveLyricsRequest(requestSongId: Long): Boolean {
-        return activeLyricsSongId == requestSongId
+    private fun isActiveLyricsRequest(requestTrackKey: String?): Boolean {
+        return activeLyricsTrackKey != null && activeLyricsTrackKey == requestTrackKey
     }
 
     private fun applyLyricsResult(result: LyricsResult) {

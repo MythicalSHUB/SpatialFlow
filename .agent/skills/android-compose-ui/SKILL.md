@@ -6,6 +6,11 @@ description: |
 
 # Android / KMP Compose UI Patterns
 
+## Working Rule: Compilation Restrictions
+
+> [!IMPORTANT]
+> **CRITICAL**: Do NOT run any compilation or build commands (such as `./gradlew compileDebugKotlin`, `./gradlew build`, `./gradlew assembleDebug`, etc.) when working on the Android app. Rely on syntax correctness and let the developer run compiles locally.
+
 ## Core Principle
 
 The UI is dumb. Composables render state and forward user actions — nothing more. All state lives in the ViewModel. All logic lives in the ViewModel, domain, or data layer. Compose code should contain zero business logic, zero data transformation, and minimal side effects.

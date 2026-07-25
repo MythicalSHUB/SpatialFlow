@@ -3,6 +3,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     id("com.github.ben-manes.versions") version "0.54.0"
@@ -35,8 +36,13 @@ android {
         applicationId "com.codetrio.spatialflow"
         minSdk 25
         targetSdk 37
-        versionCode 8
-        versionName "1.8"
+        versionCode 9
+        versionName "1.8.1"
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     signingConfigs {
@@ -75,8 +81,18 @@ android {
     }
 
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            universalApk true
+        }
     }
 }
 
@@ -89,6 +105,7 @@ configurations {
 }
 
 dependencies {
+    coreLibraryDesugaring libs.desugar.jdk.libs.nio
     implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
     implementation libs.androidx.compose.foundation
 
@@ -123,9 +140,12 @@ dependencies {
     implementation libs.compose.ui.graphics
     implementation libs.compose.ui.tooling.preview
     implementation libs.compose.material3
+    implementation libs.compose.material3.windowsizeclass
+    implementation libs.compose.material3.adaptive.navigation.suite
     implementation libs.activity.compose
     implementation libs.lifecycle.viewmodel.compose
     implementation libs.coil.compose
+    implementation libs.coil.gif
     implementation libs.material.icons.extended
     implementation libs.foundation
     implementation libs.compose.runtime.livedata
@@ -147,9 +167,12 @@ dependencies {
 
     // Media3 / ExoPlayer
     implementation libs.media3.exoplayer
+    implementation libs.media3.exoplayer.hls
+    implementation libs.media3.exoplayer.dash
     implementation libs.media3.session
     implementation libs.media3.common
     implementation libs.media3.ui
+    implementation libs.media3.ui.compose
 
     // NewPipe Extractor — local YouTube stream extraction (no proxy dependency)
     implementation libs.newpipeextractor
@@ -162,5 +185,32 @@ dependencies {
     implementation libs.liquid
     
     // Graphics Shapes
-    implementation 'androidx.graphics:graphics-shapes:1.0.1'
+    implementation libs.androidx.graphics.shapes
+
+    // Calvin Reorderable
+    implementation libs.reorderable
+
+    // Ktor (Canvas Artwork Network)
+    implementation libs.ktor.client.okhttp
+    implementation libs.ktor.client.content.negotiation
+    implementation libs.ktor.serialization.kotlinx.json
+    implementation libs.ktor.client.encoding
+
+    // Kotlinx Serialization JSON (Canvas cache persistence)
+    implementation libs.kotlinx.serialization.json
+
+    // Media3 OkHttp DataSource (Canvas ExoPlayer)
+    implementation libs.media3.datasource.okhttp
+}
+
+def isNonStable = { String version ->
+    def stableKeyword = ['RELEASE', 'FINAL', 'GA'].any { it -> version.toUpperCase().contains(it) }
+    def regex = /^[0-9,.v-]+(-r)?$/
+    return !stableKeyword && !(version ==~ regex)
+}
+
+tasks.named("dependencyUpdates").configure {
+    rejectVersionIf {
+        isNonStable(it.candidate.version)
+    }
 }

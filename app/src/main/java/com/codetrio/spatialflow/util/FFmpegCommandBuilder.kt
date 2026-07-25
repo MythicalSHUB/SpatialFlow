@@ -66,4 +66,64 @@ object FFmpegCommandBuilder {
             append("\"$outputPath\"")
         }
     }
+
+    /**
+     * Builds FFmpeg arguments to package a downloaded audio stream into a standard .opus container.
+     * Returns a [List<String>] so each argument is passed discretely to
+     * [FFmpegKit.executeWithArguments] — this is critical for the METADATA_BLOCK_PICTURE
+     * value which can be hundreds of KB of base64 and must never be shell-split.
+     *
+     * Text metadata (title/artist/album) → written as Vorbis Comments via -metadata.
+     * Cover art → written as METADATA_BLOCK_PICTURE Vorbis Comment (Opus/FLAC standard).
+     */
+    @JvmStatic
+    fun buildOpusPackageArgs(
+        inputPath: String,
+        outputPath: String,
+        isOpusSource: Boolean,
+        title: String = "",
+        artist: String = "",
+        album: String = "",
+        pictureBase64: String = ""
+    ): List<String> = buildList {
+        add("-y")
+        add("-hide_banner")
+        add("-loglevel"); add("error")
+
+        add("-i"); add(inputPath)
+        add("-map"); add("0:a")
+
+        if (isOpusSource) {
+            add("-c:a"); add("copy")
+        } else {
+            add("-c:a"); add("libopus")
+            add("-b:a"); add("160k")
+        }
+
+        // Vorbis Comments (text tags)
+        if (title.isNotBlank())  { add("-metadata"); add("title=$title")  }
+        if (artist.isNotBlank()) { add("-metadata"); add("artist=$artist") }
+        if (album.isNotBlank())  { add("-metadata"); add("album=$album")  }
+
+        // Cover art as METADATA_BLOCK_PICTURE (Opus / FLAC standard Vorbis Comment)
+        if (pictureBase64.isNotBlank()) {
+            add("-metadata"); add("METADATA_BLOCK_PICTURE=$pictureBase64")
+        }
+
+        add(outputPath)
+    }
+
+    // ── Legacy string builder (kept for 8D and other callers) ──────────────────
+
+    /** @deprecated Prefer [buildOpusPackageArgs] for Opus packaging. */
+    @JvmStatic
+    fun buildOpusPackage(
+        inputPath: String,
+        outputPath: String,
+        isOpusSource: Boolean,
+        title: String = "",
+        artist: String = "",
+        album: String = ""
+    ): String = buildOpusPackageArgs(inputPath, outputPath, isOpusSource, title, artist, album)
+        .joinToString(" ") { if (it.contains(' ')) "\"$it\"" else it }
 }

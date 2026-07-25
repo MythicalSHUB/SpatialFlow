@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 class YouTubeTelemetryManager(
+    private val context: android.content.Context,
     private val httpClient: OkHttpClient,
     private val clientProvider: () -> InnerTubeClient
 ) {
@@ -39,6 +40,12 @@ class YouTubeTelemetryManager(
         sessionStartTimeMs = System.currentTimeMillis()
         
         Log.d(TAG, "Song changed to $videoId, fetching telemetry URLs with cpn=$cpn")
+
+        val prefs = context.getSharedPreferences("AppSettings", android.content.Context.MODE_PRIVATE)
+        if (prefs.getBoolean("pause_history", false)) {
+            Log.d(TAG, "History tracking is paused (pause_history = true). Skipping YouTube Telemetry for $videoId.")
+            return
+        }
 
         val innerTubeClient = clientProvider()
         val cookie = innerTubeClient.cookie
@@ -180,6 +187,12 @@ class YouTubeTelemetryManager(
         capturedSessionStartTimeMs: Long? = null,
         capturedWatchtimeUrl: String? = null
     ) {
+        val prefs = context.getSharedPreferences("AppSettings", android.content.Context.MODE_PRIVATE)
+        if (prefs.getBoolean("pause_history", false)) {
+            Log.d(TAG, "History tracking is paused. Skipping watchtime ping [st=$st, et=$et]")
+            return
+        }
+
         val videoId = currentVideoId ?: return
         val lengthSec = currentDurationMs / 1000
         

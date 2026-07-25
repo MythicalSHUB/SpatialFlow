@@ -27,12 +27,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -45,6 +53,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,6 +62,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -72,6 +83,7 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Opacity
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -91,7 +103,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -114,7 +129,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -130,16 +147,18 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.graphics.shapes.Morph
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraphBuilder
 import com.codetrio.spatialflow.BuildConfig
 import com.codetrio.spatialflow.MainActivity
 import com.codetrio.spatialflow.R
+import com.codetrio.spatialflow.composableWithBlur
+import com.codetrio.spatialflow.ui.explore.MorphShape
+import com.codetrio.spatialflow.ui.explore.rememberExpressiveShapeMorph
+import com.codetrio.spatialflow.ui.explore.shimmerEffect
 import com.codetrio.spatialflow.ui.player.SleepTimerBottomSheet
 import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel
 import kotlinx.coroutines.Dispatchers
@@ -155,6 +174,7 @@ import java.net.URLEncoder
 import java.text.DecimalFormat
 import kotlin.math.log10
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 private val SmoothSpring = spring<Float>(
     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -272,6 +292,34 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefs.edit {putBoolean(KEY_AUDIO_FOCUS, enabled)}
     }
 
+    // ── Autoplay ─────────────────────────────────────────────────────────────
+    private val _autoplayEnabled = MutableStateFlow(prefs.getBoolean("autoplay_enabled", true))
+    val autoplayEnabled: StateFlow<Boolean> = _autoplayEnabled.asStateFlow()
+
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+        if (key == "autoplay_enabled") {
+            val enabled = sharedPreferences.getBoolean("autoplay_enabled", true)
+            if (_autoplayEnabled.value != enabled) {
+                _autoplayEnabled.value = enabled
+            }
+        }
+    }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
+    }
+
+    fun setAutoplayEnabled(enabled: Boolean) {
+        if (_autoplayEnabled.value == enabled) return
+        _autoplayEnabled.value = enabled
+        prefs.edit {putBoolean("autoplay_enabled", enabled)}
+    }
+
     // ── Pure AMOLED Black ──────────────────────────────────────────────────
     private val _amoledBlack = MutableStateFlow(prefs.getBoolean(KEY_AMOLED_BLACK, false))
     val amoledBlack: StateFlow<Boolean> = _amoledBlack.asStateFlow()
@@ -290,6 +338,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefs.edit {putBoolean("hide_nav_labels", hide)}
     }
 
+
+
     // ── Dynamic Nav Style ──────────────────────────────────────────────────
     private val _dynamicNavStyle = MutableStateFlow(prefs.getBoolean("dynamic_nav_style", false))
     val dynamicNavStyle: StateFlow<Boolean> = _dynamicNavStyle.asStateFlow()
@@ -299,13 +349,42 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefs.edit {putBoolean("dynamic_nav_style", enabled)}
     }
 
+    // ── Navigation Blur ──────────────────────────────────────────────────
+    private val _navigationBlur = MutableStateFlow(prefs.getBoolean(KEY_NAVIGATION_BLUR, true))
+    val navigationBlur: StateFlow<Boolean> = _navigationBlur.asStateFlow()
+
+    fun setNavigationBlur(enabled: Boolean) {
+        _navigationBlur.value = enabled
+        prefs.edit {putBoolean(KEY_NAVIGATION_BLUR, enabled)}
+    }
+
+    // ── Tab Switch Blur ───────────────────────────────────────────────────
+    // Controls whether blur is applied on main tab swipes (Explore↔Library).
+    // Off by default since tab switches are frequent and GPU-heavy.
+    private val _tabSwitchBlur = MutableStateFlow(prefs.getBoolean(KEY_TAB_SWITCH_BLUR, false))
+    val tabSwitchBlur: StateFlow<Boolean> = _tabSwitchBlur.asStateFlow()
+
+    fun setTabSwitchBlur(enabled: Boolean) {
+        _tabSwitchBlur.value = enabled
+        prefs.edit { putBoolean(KEY_TAB_SWITCH_BLUR, enabled) }
+    }
+
     // ── Dynamic Album Theme ────────────────────────────────────────────────
-    private val _dynamicAlbumTheme = MutableStateFlow(prefs.getBoolean(KEY_DYNAMIC_ALBUM_THEME, false))
+    private val _dynamicAlbumTheme = MutableStateFlow(prefs.getBoolean(KEY_DYNAMIC_ALBUM_THEME, true))
     val dynamicAlbumTheme: StateFlow<Boolean> = _dynamicAlbumTheme.asStateFlow()
 
     fun setDynamicAlbumTheme(enabled: Boolean) {
         _dynamicAlbumTheme.value = enabled
         prefs.edit {putBoolean(KEY_DYNAMIC_ALBUM_THEME, enabled)}
+    }
+
+    // ── Player Theme ──────────────────────────────────────────────────
+    private val _playerTheme = MutableStateFlow(prefs.getString(KEY_PLAYER_THEME, "fluid") ?: "fluid")
+    val playerTheme: StateFlow<String> = _playerTheme.asStateFlow()
+
+    fun setPlayerTheme(theme: String) {
+        _playerTheme.value = theme
+        prefs.edit { putString(KEY_PLAYER_THEME, theme) }
     }
 
     // ── Ignore Short Audio ──────────────────────────────────────────────────
@@ -352,6 +431,24 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setPauseHistory(pause: Boolean) {
         _pauseHistory.value = pause
         prefs.edit {putBoolean("pause_history", pause)}
+    }
+
+    // ── High Refresh Rate ────────────────────────────────────────────────────
+    private val _forceHighRefreshRate = MutableStateFlow(prefs.getBoolean("force_high_refresh_rate", false))
+    val forceHighRefreshRate: StateFlow<Boolean> = _forceHighRefreshRate.asStateFlow()
+
+    fun setForceHighRefreshRate(force: Boolean) {
+        _forceHighRefreshRate.value = force
+        prefs.edit {putBoolean("force_high_refresh_rate", force)}
+    }
+
+    // ── Animated Album Art ───────────────────────────────────────────────────
+    private val _showAnimatedArt = MutableStateFlow(prefs.getBoolean("show_animated_art", true))
+    val showAnimatedArt: StateFlow<Boolean> = _showAnimatedArt.asStateFlow()
+
+    fun setShowAnimatedArt(show: Boolean) {
+        _showAnimatedArt.value = show
+        prefs.edit {putBoolean("show_animated_art", show)}
     }
 
     // ── Haptics Granular ─────────────────────────────────────────────────────
@@ -437,7 +534,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     // Sizes in MB. -1 or 0 could mean unlimited, or we can use large numbers. We'll use Int (MB). 0 = unlimited.
-    private val _songCacheMaxSize = MutableStateFlow(prefs.getInt("song_cache_max_size", 1024)) // Default 1GB
+    private val _songCacheMaxSize = MutableStateFlow(prefs.getInt("song_cache_max_size", 256)) // Default 256MB
     val songCacheMaxSize: StateFlow<Int> = _songCacheMaxSize.asStateFlow()
 
     fun setSongCacheMaxSize(sizeMb: Int) {
@@ -445,12 +542,122 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefs.edit {putInt("song_cache_max_size", sizeMb)}
     }
 
-    private val _imageCacheMaxSize = MutableStateFlow(prefs.getInt("image_cache_max_size", 512)) // Default 500MB
+    private val _imageCacheMaxSize = MutableStateFlow(prefs.getInt("image_cache_max_size", 128)) // Default 128MB
     val imageCacheMaxSize: StateFlow<Int> = _imageCacheMaxSize.asStateFlow()
 
     fun setImageCacheMaxSize(sizeMb: Int) {
         _imageCacheMaxSize.value = sizeMb
         prefs.edit {putInt("image_cache_max_size", sizeMb)}
+    }
+
+    // ── Database & Scanning Tools ─────────────────────────────────────────────
+    private val _isLibraryScanning = MutableStateFlow(false)
+    val isLibraryScanning: StateFlow<Boolean> = _isLibraryScanning.asStateFlow()
+
+    fun performFullScan(playerSharedViewModel: PlayerSharedViewModel, onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLibraryScanning.value = true
+            val pathsToScan = mutableListOf<java.io.File>()
+
+            // Resolve configured library paths
+            val currentPaths = libraryPaths.value
+            currentPaths.forEach { pathUriStr ->
+                try {
+                    val uri = Uri.parse(pathUriStr)
+                    val absolutePath = getPathFromUri(uri)
+                    val file = java.io.File(absolutePath)
+                    if (file.exists() && file.isDirectory) {
+                        pathsToScan.add(file)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("SettingsViewModel", "Invalid library path: $pathUriStr", e)
+                }
+            }
+
+            // Fallback to standard dirs if no custom paths
+            if (pathsToScan.isEmpty()) {
+                val musicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
+                if (musicDir.exists()) pathsToScan.add(musicDir)
+                val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                if (downloadDir.exists()) pathsToScan.add(downloadDir)
+            }
+
+            // Find all audio files recursively
+            val filesToScan = mutableListOf<String>()
+            val audioExtensions = setOf("mp3", "flac", "wav", "m4a", "ogg", "aac", "opus", "wma", "amr")
+
+            pathsToScan.forEach { dir ->
+                try {
+                    dir.walkTopDown().forEach { file ->
+                        if (file.isFile && file.extension.lowercase() in audioExtensions) {
+                            filesToScan.add(file.absolutePath)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("SettingsViewModel", "Error walking directory: ${dir.absolutePath}", e)
+                }
+            }
+
+            if (filesToScan.isNotEmpty()) {
+                val latch = java.util.concurrent.CountDownLatch(1)
+                val chunkSize = 100
+                val chunks = filesToScan.chunked(chunkSize)
+
+                val scannedCount = java.util.concurrent.atomic.AtomicInteger(0)
+                chunks.forEach { chunk ->
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        chunk.toTypedArray(),
+                        null
+                    ) { _, _ ->
+                        if (scannedCount.incrementAndGet() >= filesToScan.size) {
+                            latch.countDown()
+                        }
+                    }
+                }
+
+                latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
+
+            // Reload the local media files in PlayerSharedViewModel
+            playerSharedViewModel.rescanLocalFiles()
+
+            _isLibraryScanning.value = false
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
+
+    fun rebuildDatabase(playerSharedViewModel: PlayerSharedViewModel, onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLibraryScanning.value = true
+
+            // 1. Clear song cache
+            try {
+                val mediaCacheDir = java.io.File(context.cacheDir, "media_cache")
+                deleteDir(mediaCacheDir)
+            } catch (e: Exception) {
+                android.util.Log.e("SettingsViewModel", "Failed to clear song cache", e)
+            }
+
+            // 2. Clear image cache
+            try {
+                val imageCacheDir = java.io.File(context.cacheDir, "image_cache")
+                deleteDir(imageCacheDir)
+            } catch (e: Exception) {
+                android.util.Log.e("SettingsViewModel", "Failed to clear image cache", e)
+            }
+
+            // Update cache size state in ViewModel
+            calculateCacheSize()
+
+            // 3. Force perform full scan
+            performFullScan(playerSharedViewModel) {
+                _isLibraryScanning.value = false
+                onComplete()
+            }
+        }
     }
 
     // ── Backup & Restore ──────────────────────────────────────────────────────
@@ -549,7 +756,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
                     _darkMode.value = prefs.getBoolean(KEY_DARK_MODE, true)
                     _amoledBlack.value = prefs.getBoolean(KEY_AMOLED_BLACK, false)
-                    _dynamicAlbumTheme.value = prefs.getBoolean(KEY_DYNAMIC_ALBUM_THEME, false)
+                    _showAnimatedArt.value = prefs.getBoolean("show_animated_art", true)
+                    _dynamicAlbumTheme.value = prefs.getBoolean(KEY_DYNAMIC_ALBUM_THEME, true)
                     _vibrationStrength.value = prefs.getFloat(KEY_VIBRATION_STRENGTH, 80f)
                     _crossfadeEnabled.value = prefs.getBoolean(KEY_CROSSFADE_ENABLED, false)
                     _crossfadeDuration.value = prefs.getFloat(KEY_CROSSFADE_DURATION, 3f)
@@ -558,13 +766,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     _audioQuality.value = prefs.getString(KEY_AUDIO_QUALITY, "High") ?: "High"
                     _pauseHistory.value = prefs.getBoolean("pause_history", false)
                     _downloadFolder.value = prefs.getString("download_folder", null)
-                    _songCacheMaxSize.value = prefs.getInt("song_cache_max_size", 1024)
-                    _imageCacheMaxSize.value = prefs.getInt("image_cache_max_size", 512)
+                    _songCacheMaxSize.value = prefs.getInt("song_cache_max_size", 256)
+                    _imageCacheMaxSize.value = prefs.getInt("image_cache_max_size", 128)
                     _hapticPlayPause.value = prefs.getBoolean(KEY_HAPTIC_PLAY_PAUSE, true)
                     _hapticQueue.value = prefs.getBoolean(KEY_HAPTIC_QUEUE, true)
                     _hapticFavorite.value = prefs.getBoolean(KEY_HAPTIC_FAVORITE, true)
                     _volumeNormalizationEnabled.value = prefs.getBoolean(KEY_VOLUME_NORMALIZATION_ENABLED, false)
                     _targetLufs.value = prefs.getFloat(KEY_TARGET_LUFS, -14f)
+                    _navigationBlur.value = prefs.getBoolean(KEY_NAVIGATION_BLUR, true)
+                    _forceHighRefreshRate.value = prefs.getBoolean("force_high_refresh_rate", false)
+                    _playerTheme.value = prefs.getString(KEY_PLAYER_THEME, "fluid") ?: "fluid"
                 }
 
                 if (backupObject.has("favorites")) {
@@ -625,9 +836,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val imageCacheDir = File(context.cacheDir, "image_cache")
             val imageSize = getDirSize(imageCacheDir)
             
-            var totalCacheSize = getDirSize(context.cacheDir)
-            totalCacheSize += getDirSize(context.codeCacheDir)
-            val songSize = (totalCacheSize - imageSize).coerceAtLeast(0L)
+            val mediaCacheDir = File(context.cacheDir, "media_cache")
+            val songSize = getDirSize(mediaCacheDir)
 
             _imageCacheSize.value = formatFileSize(imageSize)
             _songCacheSize.value = formatFileSize(songSize)
@@ -636,12 +846,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun clearSongCache(onComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            context.cacheDir.listFiles()?.forEach { file ->
-                if (file.name != "image_cache") {
-                    deleteDir(file)
-                }
-            }
-            deleteDir(context.codeCacheDir)
+            val mediaCacheDir = File(context.cacheDir, "media_cache")
+            deleteDir(mediaCacheDir)
             calculateCacheSize()
             withContext(Dispatchers.Main) { onComplete() }
         }
@@ -687,6 +893,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     companion object {
         const val PREFS_NAME = "AppSettings"
         const val KEY_DARK_MODE = "dark_mode"
+        const val KEY_NAVIGATION_BLUR = "navigation_blur"
+        const val KEY_TAB_SWITCH_BLUR = "tab_switch_blur"
         const val KEY_VIBRATION_STRENGTH = "vibration_strength"
         const val KEY_CROSSFADE_ENABLED = "crossfade_enabled"
         const val KEY_CROSSFADE_DURATION = "crossfade_duration"
@@ -705,6 +913,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         const val KEY_DYNAMIC_ALBUM_THEME = "dynamic_album_theme"
         const val KEY_VOLUME_NORMALIZATION_ENABLED = "volume_normalization_enabled"
         const val KEY_TARGET_LUFS = "target_lufs"
+        const val KEY_PLAYER_THEME = "player_theme"
     }
 }
 
@@ -743,260 +952,381 @@ private fun Context.findActivity(): Activity? {
 }
 
 @RequiresApi(Build.VERSION_CODES.Q)
-@Composable
-fun SettingsScreenContent(
-    viewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(LocalContext.current.findActivity() as androidx.activity.ComponentActivity),
-    playerSharedViewModel: PlayerSharedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(LocalContext.current.findActivity() as androidx.activity.ComponentActivity)
-) {
-    val darkMode by viewModel.darkMode.collectAsStateWithLifecycle()
-    val isPlayerExpanded by playerSharedViewModel.isPlayerExpanded.collectAsStateWithLifecycle()
-    val amoledBlack by viewModel.amoledBlack.collectAsStateWithLifecycle()
-    val dynamicAlbumTheme by viewModel.dynamicAlbumTheme.collectAsStateWithLifecycle()
-    val hideNavLabels by viewModel.hideNavLabels.collectAsStateWithLifecycle()
-    val dynamicNavStyle by viewModel.dynamicNavStyle.collectAsStateWithLifecycle()
-    val vibrationStrength by viewModel.vibrationStrength.collectAsStateWithLifecycle()
-    val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsStateWithLifecycle()
-    val crossfadeDuration by viewModel.crossfadeDuration.collectAsStateWithLifecycle()
-    val audioFocus by viewModel.audioFocus.collectAsStateWithLifecycle()
-    val sleepTimerEndTime by playerSharedViewModel.sleepTimerEndTime.collectAsStateWithLifecycle()
-    val sleepTimerMode by playerSharedViewModel.sleepTimerMode.collectAsStateWithLifecycle()
-    val volumeNormalizationEnabled by viewModel.volumeNormalizationEnabled.collectAsStateWithLifecycle()
-    val targetLufs by viewModel.targetLufs.collectAsStateWithLifecycle()
-    val libraryPaths by viewModel.libraryPaths.collectAsStateWithLifecycle()
-    val songCacheSize by viewModel.songCacheSize.collectAsStateWithLifecycle()
-    val imageCacheSize by viewModel.imageCacheSize.collectAsStateWithLifecycle()
-
-    val ignoreShortAudio by viewModel.ignoreShortAudio.collectAsStateWithLifecycle()
-    val ignoreShortAudioDuration by viewModel.ignoreShortAudioDuration.collectAsStateWithLifecycle()
-    val hiddenFolders by viewModel.hiddenFolders.collectAsStateWithLifecycle()
-
-    val dataSaver by viewModel.dataSaver.collectAsStateWithLifecycle()
-    val audioQuality by viewModel.audioQuality.collectAsStateWithLifecycle()
-    val pauseHistory by viewModel.pauseHistory.collectAsStateWithLifecycle()
-    val downloadFolder by viewModel.downloadFolder.collectAsStateWithLifecycle()
-    val songCacheMaxSize by viewModel.songCacheMaxSize.collectAsStateWithLifecycle()
-    val imageCacheMaxSize by viewModel.imageCacheMaxSize.collectAsStateWithLifecycle()
-
-    val hapticPlayPause by viewModel.hapticPlayPause.collectAsStateWithLifecycle()
-    val hapticQueue by viewModel.hapticQueue.collectAsStateWithLifecycle()
-    val hapticFavorite by viewModel.hapticFavorite.collectAsStateWithLifecycle()
-
-    val ytCookies by viewModel.ytCookies.collectAsStateWithLifecycle()
-
-    val context = LocalContext.current
-
-    val directoryPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        uri?.let {
-            context.contentResolver.takePersistableUriPermission(
-                it, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-            viewModel.addLibraryPath(it.toString())
-        }
+fun NavGraphBuilder.settingsGraph(navController: androidx.navigation.NavController) {
+    val enterAnim: androidx.compose.animation.AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> androidx.compose.animation.EnterTransition = {
+        slideInHorizontally(
+            initialOffsetX = { it },
+            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+        ) + fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.95f, animationSpec = tween(220))
     }
 
-    val downloadFolderPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        uri?.let {
-            context.contentResolver.takePersistableUriPermission(
-                it, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-            val path = getPathFromUri(it)
-            viewModel.setDownloadFolder(path)
-        }
+    val exitAnim: androidx.compose.animation.AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> androidx.compose.animation.ExitTransition = {
+        slideOutHorizontally(
+            targetOffsetX = { -it / 3 },
+            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+        ) + fadeOut(animationSpec = tween(220)) + scaleOut(targetScale = 0.95f, animationSpec = tween(220))
     }
 
-    val exportBackupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        uri?.let {
-            viewModel.exportBackup(context, it) { _, msg ->
-                (context as? MainActivity)?.showSnackbar(msg, 0)
+    val popEnterAnim: androidx.compose.animation.AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> androidx.compose.animation.EnterTransition = {
+        slideInHorizontally(
+            initialOffsetX = { -it / 3 },
+            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+        ) + fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.95f, animationSpec = tween(220))
+    }
+
+    val popExitAnim: androidx.compose.animation.AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> androidx.compose.animation.ExitTransition = {
+        slideOutHorizontally(
+            targetOffsetX = { it },
+            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+        ) + fadeOut(animationSpec = tween(220)) + scaleOut(targetScale = 0.95f, animationSpec = tween(220))
+    }
+
+    composableWithBlur(SettingsRoute.Main.route) {
+        SettingsMainScreen(navController = navController)
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.MusicManagement.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        val context = LocalContext.current
+        val activity = context.findActivity() as androidx.activity.ComponentActivity
+        val viewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+
+        val libraryPaths by viewModel.libraryPaths.collectAsStateWithLifecycle()
+        val songCacheSize by viewModel.songCacheSize.collectAsStateWithLifecycle()
+        val imageCacheSize by viewModel.imageCacheSize.collectAsStateWithLifecycle()
+        val songCacheMaxSize by viewModel.songCacheMaxSize.collectAsStateWithLifecycle()
+        val imageCacheMaxSize by viewModel.imageCacheMaxSize.collectAsStateWithLifecycle()
+        val downloadFolder by viewModel.downloadFolder.collectAsStateWithLifecycle()
+        val ignoreShortAudio by viewModel.ignoreShortAudio.collectAsStateWithLifecycle()
+        val ignoreShortAudioDuration by viewModel.ignoreShortAudioDuration.collectAsStateWithLifecycle()
+        val hiddenFolders by viewModel.hiddenFolders.collectAsStateWithLifecycle()
+
+        LaunchedEffect(Unit) { viewModel.calculateCacheSize() }
+
+        val directoryPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            uri?.let {
+                context.contentResolver.takePersistableUriPermission(
+                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                viewModel.addLibraryPath(it.toString())
             }
         }
-    }
 
-    val importBackupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            viewModel.importBackup(context, it) { _, msg ->
-                (context as? MainActivity)?.showSnackbar(msg, 0)
-            }
-        }
-    }
-
-    val hiddenFolderPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        uri?.let {
-            try {
+        val downloadFolderPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            uri?.let {
                 context.contentResolver.takePersistableUriPermission(
                     it, Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
                 val path = getPathFromUri(it)
-                viewModel.addHiddenFolder(path)
-            } catch (e: Exception) {
-                android.util.Log.e("SettingsScreenContent", "Failed to resolve hidden folder path", e)
+                viewModel.setDownloadFolder(path)
             }
         }
-    }
 
-
-
-    LaunchedEffect(Unit) { viewModel.calculateCacheSize() }
-
-    val navController = rememberNavController()
-    val currentBackStackEntry by navController.currentBackStackEntryAsState()
-    val canPop = currentBackStackEntry?.destination?.route != SettingsRoute.Main.route
-
-    NavHost(
-        navController = navController, 
-        startDestination = SettingsRoute.Main.route,
-        enterTransition = { slideInHorizontally(initialOffsetX = { it }) },
-        exitTransition = { slideOutHorizontally(targetOffsetX = { -it }) },
-        popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }) },
-        popExitTransition = { slideOutHorizontally(targetOffsetX = { it }) }
-    ) {
-        composable(SettingsRoute.Main.route) {
-            SettingsMainScreen(navController = navController)
-        }
-        composable(SettingsRoute.MusicManagement.route) {
-            MusicManagementScreen(
-                navController = navController,
-                libraryPaths = libraryPaths,
-                onRemovePath = { viewModel.removeLibraryPath(it) },
-                onAddPathClick = { directoryPickerLauncher.launch(null) },
-                songCacheSize = songCacheSize,
-                imageCacheSize = imageCacheSize,
-                onClearSongCache = {
-                    viewModel.clearSongCache {
-                        (context as? MainActivity)?.showSnackbar("Song cache cleared", 0)
-                    }
-                },
-                onClearImageCache = {
-                    viewModel.clearImageCache {
-                        (context as? MainActivity)?.showSnackbar("Image cache cleared", 0)
-                    }
-                },
-                songCacheMaxSize = songCacheMaxSize,
-                onSongCacheMaxSizeChange = { viewModel.setSongCacheMaxSize(it) },
-                imageCacheMaxSize = imageCacheMaxSize,
-                onImageCacheMaxSizeChange = { viewModel.setImageCacheMaxSize(it) },
-                downloadFolder = downloadFolder,
-                onDownloadFolderClick = { downloadFolderPickerLauncher.launch(null) },
-                ignoreShortAudio = ignoreShortAudio,
-                onIgnoreShortAudioChange = { viewModel.setIgnoreShortAudio(it) },
-                ignoreShortAudioDuration = ignoreShortAudioDuration,
-                onIgnoreShortAudioDurationChange = { viewModel.setIgnoreShortAudioDuration(it) },
-                hiddenFolders = hiddenFolders,
-                onAddHiddenFolderClick = { hiddenFolderPickerLauncher.launch(null) },
-                onRemoveHiddenFolder = { viewModel.removeHiddenFolder(it) }
-            )
-        }
-        composable(SettingsRoute.BackupRestore.route) {
-            BackupRestoreScreen(
-                navController = navController,
-                onBackupClick = { exportBackupLauncher.launch("spatialflow_backup.json") },
-                onRestoreClick = { importBackupLauncher.launch(arrayOf("application/json")) }
-            )
-        }
-        composable(SettingsRoute.Account.route) {
-            AccountScreen(
-                navController = navController,
-                ytCookies = ytCookies,
-                onYtCookiesChange = { viewModel.setYtCookies(it) },
-                dataSaver = dataSaver,
-                onDataSaverChange = { viewModel.setDataSaver(it) },
-                pauseHistory = pauseHistory,
-                onPauseHistoryChange = { viewModel.setPauseHistory(it) }
-            )
-        }
-        composable(SettingsRoute.Appearance.route) {
-            AppearanceScreen(
-                navController = navController,
-                darkMode = darkMode,
-                onDarkModeChange = { viewModel.setDarkMode(it) },
-                amoledBlack = amoledBlack,
-                onAmoledBlackChange = { viewModel.setAmoledBlack(it) },
-                dynamicAlbumTheme = dynamicAlbumTheme,
-                onDynamicAlbumThemeChange = { viewModel.setDynamicAlbumTheme(it) },
-                hideNavLabels = hideNavLabels,
-                onHideNavLabelsChange = { viewModel.setHideNavLabels(it) },
-                dynamicNavStyle = dynamicNavStyle,
-                onDynamicNavStyleChange = { viewModel.setDynamicNavStyle(it) }
-            )
-        }
-        composable(SettingsRoute.Playback.route) {
-            PlaybackScreen(
-                navController = navController,
-                crossfadeEnabled = crossfadeEnabled,
-                onCrossfadeToggle = { viewModel.setCrossfadeEnabled(it) },
-                crossfadeDuration = crossfadeDuration,
-                onCrossfadeDurationChange = { viewModel.setCrossfadeDuration(it) },
-                audioFocus = audioFocus,
-                onAudioFocusToggle = { viewModel.setAudioFocus(it) },
-                sleepTimerEndTime = sleepTimerEndTime,
-                sleepTimerMode = sleepTimerMode,
-                onStartSleepTimer = { playerSharedViewModel.startCustomSleepTimer(it) },
-                onCancelSleepTimer = { playerSharedViewModel.cancelSleepTimer() },
-                onSetEndOfSong = { enable ->
-                    if (enable) playerSharedViewModel.setSleepTimerMode(PlayerSharedViewModel.SleepTimerMode.END_OF_SONG)
-                    else playerSharedViewModel.cancelSleepTimer()
-                },
-                audioQuality = audioQuality,
-                onAudioQualityChange = { viewModel.setAudioQuality(it) },
-                volumeNormalizationEnabled = volumeNormalizationEnabled,
-                onVolumeNormalizationChange = { viewModel.setVolumeNormalizationEnabled(it) },
-                targetLufs = targetLufs,
-                onTargetLufsChange = { viewModel.setTargetLufs(it) }
-            )
-        }
-        composable(SettingsRoute.Haptics.route) {
-            HapticsScreen(
-                navController = navController,
-                hasHaptics = viewModel.hasHaptics,
-                vibrationStrength = vibrationStrength,
-                onVibrationStrengthChange = { viewModel.setVibrationStrength(it) },
-                hapticPlayPause = hapticPlayPause,
-                onHapticPlayPauseChange = { viewModel.setHapticPlayPause(it) },
-                hapticQueue = hapticQueue,
-                onHapticQueueChange = { viewModel.setHapticQueue(it) },
-                hapticFavorite = hapticFavorite,
-                onHapticFavoriteChange = { viewModel.setHapticFavorite(it) }
-            )
-        }
-        composable(SettingsRoute.About.route) {
-            AboutScreen(
-                navController = navController,
-                onCheckUpdate = {
-                    (context as? Activity)?.let { activity ->
-                        (context as? MainActivity)?.updateManager?.checkForUpdate(
-                            activity.findViewById(android.R.id.content),
-                            BuildConfig.VERSION_NAME
-                        )
-                    }
-                },
-                onWhatsNew = { navController.navigate(SettingsRoute.WhatsNew.route) },
-                onOpenUrl = { url ->
-                    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+        val hiddenFolderPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            uri?.let {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                    val path = getPathFromUri(it)
+                    viewModel.addHiddenFolder(path)
+                } catch (e: Exception) {
+                    android.util.Log.e("SettingsScreenContent", "Failed to resolve hidden folder path", e)
                 }
-            )
+            }
         }
-        composable(SettingsRoute.Feedback.route) {
-            FeedbackScreen(navController = navController)
-        }
-        composable(SettingsRoute.WhatsNew.route) {
-            WhatsNewScreen(navController = navController)
-        }
+
+        val isScanning by viewModel.isLibraryScanning.collectAsStateWithLifecycle()
+        val playerSharedViewModel: PlayerSharedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+
+        MusicManagementScreen(
+            navController = navController,
+            libraryPaths = libraryPaths,
+            onRemovePath = { viewModel.removeLibraryPath(it) },
+            onAddPathClick = { directoryPickerLauncher.launch(null) },
+            songCacheSize = songCacheSize,
+            imageCacheSize = imageCacheSize,
+            onClearSongCache = {
+                viewModel.clearSongCache {
+                    (context as? MainActivity)?.showSnackbar("Song cache cleared", 0)
+                }
+            },
+            onClearImageCache = {
+                viewModel.clearImageCache {
+                    (context as? MainActivity)?.showSnackbar("Image cache cleared", 0)
+                }
+            },
+            songCacheMaxSize = songCacheMaxSize,
+            onSongCacheMaxSizeChange = { viewModel.setSongCacheMaxSize(it) },
+            imageCacheMaxSize = imageCacheMaxSize,
+            onImageCacheMaxSizeChange = { viewModel.setImageCacheMaxSize(it) },
+            downloadFolder = downloadFolder,
+            onDownloadFolderClick = { downloadFolderPickerLauncher.launch(null) },
+            ignoreShortAudio = ignoreShortAudio,
+            onIgnoreShortAudioChange = { viewModel.setIgnoreShortAudio(it) },
+            ignoreShortAudioDuration = ignoreShortAudioDuration,
+            onIgnoreShortAudioDurationChange = { viewModel.setIgnoreShortAudioDuration(it) },
+            hiddenFolders = hiddenFolders,
+            onAddHiddenFolderClick = { hiddenFolderPickerLauncher.launch(null) },
+            onRemoveHiddenFolder = { viewModel.removeHiddenFolder(it) },
+            isScanning = isScanning,
+            onRescanClick = {
+                viewModel.performFullScan(playerSharedViewModel) {
+                    (context as? MainActivity)?.showSnackbar("Library rescan complete", 0)
+                }
+            },
+            onRebuildDatabaseClick = {
+                viewModel.rebuildDatabase(playerSharedViewModel) {
+                    (context as? MainActivity)?.showSnackbar("Database rebuilt successfully", 0)
+                }
+            }
+        )
     }
 
-    androidx.activity.compose.BackHandler(enabled = canPop && !isPlayerExpanded) {
-        navController.popBackStack()
+    composableWithBlur(
+        route = SettingsRoute.BackupRestore.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        val context = LocalContext.current
+        val activity = context.findActivity() as androidx.activity.ComponentActivity
+        val viewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+
+        val exportBackupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            uri?.let {
+                viewModel.exportBackup(context, it) { _, msg ->
+                    (context as? MainActivity)?.showSnackbar(msg, 0)
+                }
+            }
+        }
+
+        val importBackupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            uri?.let {
+                viewModel.importBackup(context, it) { _, msg ->
+                    (context as? MainActivity)?.showSnackbar(msg, 0)
+                }
+            }
+        }
+
+        BackupRestoreScreen(
+            navController = navController,
+            onBackupClick = { exportBackupLauncher.launch("spatialflow_backup.json") },
+            onRestoreClick = { importBackupLauncher.launch(arrayOf("application/json")) }
+        )
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.Account.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        val context = LocalContext.current
+        val activity = context.findActivity() as androidx.activity.ComponentActivity
+        val viewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+        val ytCookies by viewModel.ytCookies.collectAsStateWithLifecycle()
+        val dataSaver by viewModel.dataSaver.collectAsStateWithLifecycle()
+        val pauseHistory by viewModel.pauseHistory.collectAsStateWithLifecycle()
+
+
+        AccountScreen(
+            navController = navController,
+            ytCookies = ytCookies,
+            onYtCookiesChange = { viewModel.setYtCookies(it) },
+            dataSaver = dataSaver,
+            onDataSaverChange = { viewModel.setDataSaver(it) },
+            pauseHistory = pauseHistory,
+            onPauseHistoryChange = { viewModel.setPauseHistory(it) }
+        )
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.Appearance.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        val context = LocalContext.current
+        val activity = context.findActivity() as androidx.activity.ComponentActivity
+        val viewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+        val darkMode by viewModel.darkMode.collectAsStateWithLifecycle()
+        val amoledBlack by viewModel.amoledBlack.collectAsStateWithLifecycle()
+        val showAnimatedArt by viewModel.showAnimatedArt.collectAsStateWithLifecycle()
+        val dynamicAlbumTheme by viewModel.dynamicAlbumTheme.collectAsStateWithLifecycle()
+        val hideNavLabels by viewModel.hideNavLabels.collectAsStateWithLifecycle()
+        val dynamicNavStyle by viewModel.dynamicNavStyle.collectAsStateWithLifecycle()
+        val navigationBlur by viewModel.navigationBlur.collectAsStateWithLifecycle()
+        val tabSwitchBlur by viewModel.tabSwitchBlur.collectAsStateWithLifecycle()
+        val playerTheme by viewModel.playerTheme.collectAsStateWithLifecycle()
+        val forceHighRefreshRate by viewModel.forceHighRefreshRate.collectAsStateWithLifecycle()
+
+        AppearanceScreen(
+            navController = navController,
+            darkMode = darkMode,
+            onDarkModeChange = { viewModel.setDarkMode(it) },
+            amoledBlack = amoledBlack,
+            onAmoledBlackChange = { viewModel.setAmoledBlack(it) },
+            showAnimatedArt = showAnimatedArt,
+            onShowAnimatedArtChange = { viewModel.setShowAnimatedArt(it) },
+            dynamicAlbumTheme = dynamicAlbumTheme,
+            onDynamicAlbumThemeChange = { viewModel.setDynamicAlbumTheme(it) },
+            hideNavLabels = hideNavLabels,
+            onHideNavLabelsChange = { viewModel.setHideNavLabels(it) },
+            dynamicNavStyle = dynamicNavStyle,
+            onDynamicNavStyleChange = { viewModel.setDynamicNavStyle(it) },
+            navigationBlur = navigationBlur,
+            onNavigationBlurChange = { viewModel.setNavigationBlur(it) },
+            tabSwitchBlur = tabSwitchBlur,
+            onTabSwitchBlurChange = { viewModel.setTabSwitchBlur(it) },
+            playerTheme = playerTheme,
+            onPlayerThemeChange = { viewModel.setPlayerTheme(it) },
+            forceHighRefreshRate = forceHighRefreshRate,
+            onForceHighRefreshRateChange = { viewModel.setForceHighRefreshRate(it) }
+        )
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.Playback.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        val context = LocalContext.current
+        val activity = context.findActivity() as androidx.activity.ComponentActivity
+        val viewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+        val playerSharedViewModel: PlayerSharedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+
+        val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsStateWithLifecycle()
+        val crossfadeDuration by viewModel.crossfadeDuration.collectAsStateWithLifecycle()
+        val audioFocus by viewModel.audioFocus.collectAsStateWithLifecycle()
+        val autoplayEnabled by viewModel.autoplayEnabled.collectAsStateWithLifecycle()
+        val sleepTimerEndTime by playerSharedViewModel.sleepTimerEndTime.collectAsStateWithLifecycle()
+        val sleepTimerMode by playerSharedViewModel.sleepTimerMode.collectAsStateWithLifecycle()
+        val audioQuality by viewModel.audioQuality.collectAsStateWithLifecycle()
+        val volumeNormalizationEnabled by viewModel.volumeNormalizationEnabled.collectAsStateWithLifecycle()
+        val targetLufs by viewModel.targetLufs.collectAsStateWithLifecycle()
+        PlaybackScreen(
+            navController = navController,
+            crossfadeEnabled = crossfadeEnabled,
+            onCrossfadeToggle = { viewModel.setCrossfadeEnabled(it) },
+            crossfadeDuration = crossfadeDuration,
+            onCrossfadeDurationChange = { viewModel.setCrossfadeDuration(it) },
+            audioFocus = audioFocus,
+            onAudioFocusToggle = { viewModel.setAudioFocus(it) },
+            autoplayEnabled = autoplayEnabled,
+            onAutoplayToggle = { viewModel.setAutoplayEnabled(it) },
+            sleepTimerEndTime = sleepTimerEndTime,
+            sleepTimerMode = sleepTimerMode,
+            onStartSleepTimer = { playerSharedViewModel.startCustomSleepTimer(it) },
+            onCancelSleepTimer = { playerSharedViewModel.cancelSleepTimer() },
+            onSetEndOfSong = { enable ->
+                if (enable) playerSharedViewModel.setSleepTimerMode(PlayerSharedViewModel.SleepTimerMode.END_OF_SONG)
+                else playerSharedViewModel.cancelSleepTimer()
+            },
+            audioQuality = audioQuality,
+            onAudioQualityChange = { viewModel.setAudioQuality(it) },
+            volumeNormalizationEnabled = volumeNormalizationEnabled,
+            onVolumeNormalizationChange = { viewModel.setVolumeNormalizationEnabled(it) },
+            targetLufs = targetLufs,
+            onTargetLufsChange = { viewModel.setTargetLufs(it) }
+        )
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.Haptics.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        val context = LocalContext.current
+        val activity = context.findActivity() as androidx.activity.ComponentActivity
+        val viewModel: SettingsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(activity)
+        val vibrationStrength by viewModel.vibrationStrength.collectAsStateWithLifecycle()
+        val hapticPlayPause by viewModel.hapticPlayPause.collectAsStateWithLifecycle()
+        val hapticQueue by viewModel.hapticQueue.collectAsStateWithLifecycle()
+        val hapticFavorite by viewModel.hapticFavorite.collectAsStateWithLifecycle()
+
+        HapticsScreen(
+            navController = navController,
+            hasHaptics = viewModel.hasHaptics,
+            vibrationStrength = vibrationStrength,
+            onVibrationStrengthChange = { viewModel.setVibrationStrength(it) },
+            hapticPlayPause = hapticPlayPause,
+            onHapticPlayPauseChange = { viewModel.setHapticPlayPause(it) },
+            hapticQueue = hapticQueue,
+            onHapticQueueChange = { viewModel.setHapticQueue(it) },
+            hapticFavorite = hapticFavorite,
+            onHapticFavoriteChange = { viewModel.setHapticFavorite(it) }
+        )
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.About.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        val context = LocalContext.current
+        AboutScreen(
+            navController = navController,
+            onCheckUpdate = {
+                (context as? Activity)?.let { activity ->
+                    (context as? MainActivity)?.updateManager?.checkForUpdate(
+                        activity.findViewById(android.R.id.content),
+                        BuildConfig.VERSION_NAME
+                    )
+                }
+            },
+            onWhatsNew = { navController.navigate(SettingsRoute.WhatsNew.route) },
+            onOpenUrl = { url ->
+                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+            }
+        )
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.Feedback.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        FeedbackScreen(navController = navController)
+    }
+
+    composableWithBlur(
+        route = SettingsRoute.WhatsNew.route,
+        enterTransition = enterAnim,
+        exitTransition = exitAnim,
+        popEnterTransition = popEnterAnim,
+        popExitTransition = popExitAnim
+    ) {
+        WhatsNewScreen(navController = navController)
     }
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPOSE UI — MAIN SETTINGS BODY
@@ -1021,7 +1351,7 @@ private fun SettingsDetailTopBar(title: String, onBack: () -> Unit) {
 }
 
 sealed class SettingsRoute(val route: String) {
-    object Main : SettingsRoute("main")
+    object Main : SettingsRoute("settings")
     object MusicManagement : SettingsRoute("music_management")
     object Account : SettingsRoute("account")
     object Appearance : SettingsRoute("appearance")
@@ -1206,71 +1536,141 @@ private fun MusicManagementScreen(
     onDownloadFolderClick: () -> Unit,
     hiddenFolders: List<String>,
     onAddHiddenFolderClick: () -> Unit,
-    onRemoveHiddenFolder: (String) -> Unit
+    onRemoveHiddenFolder: (String) -> Unit,
+    isScanning: Boolean,
+    onRescanClick: () -> Unit,
+    onRebuildDatabaseClick: () -> Unit
 ) {
-    Scaffold(
-        topBar = { SettingsDetailTopBar("Music Management") { navController.popBackStack() } }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 120.dp)
-        ) {
-            SettingsHeader(stringResource(R.string.settings_header_library))
-            SettingsGroupCard(buildList {
-                add { LibrarySourceHeader() }
-                libraryPaths.forEach { path ->
-                    add { LibraryPathRow(path, onRemovePath) }
-                }
-                if (libraryPaths.isEmpty()) {
-                    add { LibraryPathRow(stringResource(R.string.setting_music_source_default), null) }
-                }
-                add { AddMorePathRow(onAddPathClick) }
-            })
-
-            SettingsHeader("Audio Filtering")
-            SettingsGroupCard(buildList {
-                add {
-                    IgnoreShortAudioRow(ignoreShortAudio, onIgnoreShortAudioChange)
-                }
-                if (ignoreShortAudio) {
-                    add {
-                        IgnoreShortAudioDurationRow(ignoreShortAudioDuration, onIgnoreShortAudioDurationChange)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = { SettingsDetailTopBar("Music Management") { navController.popBackStack() } }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 120.dp)
+            ) {
+                SettingsHeader(stringResource(R.string.settings_header_library))
+                SettingsGroupCard(buildList {
+                    add { LibrarySourceHeader() }
+                    libraryPaths.forEach { path ->
+                        add { LibraryPathRow(path, onRemovePath) }
                     }
-                }
-            })
+                    if (libraryPaths.isEmpty()) {
+                        add { LibraryPathRow(stringResource(R.string.setting_music_source_default), null) }
+                    }
+                    add { AddMorePathRow(onAddPathClick) }
+                })
 
-            SettingsHeader("Hidden Folders")
-            SettingsGroupCard(buildList {
-                hiddenFolders.forEach { folder ->
-                    add { HiddenFolderRow(folder, onRemoveHiddenFolder) }
-                }
-                if (hiddenFolders.isEmpty()) {
+                SettingsHeader("Audio Filtering")
+                SettingsGroupCard(buildList {
+                    add {
+                        IgnoreShortAudioRow(ignoreShortAudio, onIgnoreShortAudioChange)
+                    }
+                    if (ignoreShortAudio) {
+                        add {
+                            IgnoreShortAudioDurationRow(ignoreShortAudioDuration, onIgnoreShortAudioDurationChange)
+                        }
+                    }
+                })
+
+                SettingsHeader("Hidden Folders")
+                SettingsGroupCard(buildList {
+                    hiddenFolders.forEach { folder ->
+                        add { HiddenFolderRow(folder, onRemoveHiddenFolder) }
+                    }
+                    if (hiddenFolders.isEmpty()) {
+                        add {
+                            ListItem(
+                                headlineContent = { Text("No folders blacklisted", style = MaterialTheme.typography.bodyLarge) },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                        }
+                    }
+                    add {
+                        AddHiddenFolderRow(onAddHiddenFolderClick)
+                    }
+                })
+
+                SettingsHeader("Downloads")
+                SettingsGroupCard(listOf(
+                    { DownloadFolderRow(downloadFolder, onDownloadFolderClick) }
+                ))
+
+                SettingsHeader(stringResource(R.string.settings_header_storage))
+                SettingsGroupCard(buildList {
+                    add { SongCacheSizeRow(songCacheSize, songCacheMaxSize, onSongCacheMaxSizeChange, onClearSongCache) }
+                    add { ImageCacheSizeRow(imageCacheSize, imageCacheMaxSize, onImageCacheMaxSizeChange, onClearImageCache) }
+                })
+
+                SettingsHeader("Database & Scanning")
+                SettingsGroupCard(buildList {
                     add {
                         ListItem(
-                            headlineContent = { Text("No folders blacklisted", style = MaterialTheme.typography.bodyLarge) },
+                            onClick = onRescanClick,
+                            content = {
+                                Column {
+                                    Text("Full Library Rescan", style = MaterialTheme.typography.bodyLarge)
+                                    Text("Scan local storage for new music files", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            },
+                            leadingContent = {
+                                Icon(androidx.compose.material.icons.Icons.Default.Refresh, null, tint = MaterialTheme.colorScheme.primary)
+                            },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                         )
                     }
-                }
-                add {
-                    AddHiddenFolderRow(onAddHiddenFolderClick)
-                }
-            })
+                    add {
+                        ListItem(
+                            onClick = onRebuildDatabaseClick,
+                            content = {
+                                Column {
+                                    Text("Rebuild Database", style = MaterialTheme.typography.bodyLarge)
+                                    Text("Clear media & image caches, then full re-index", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                                }
+                            },
+                            leadingContent = {
+                                Icon(androidx.compose.material.icons.Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                })
+            }
+        }
 
-            SettingsHeader("Downloads")
-            SettingsGroupCard(listOf(
-                { DownloadFolderRow(downloadFolder, onDownloadFolderClick) }
-            ))
-
-            SettingsHeader(stringResource(R.string.settings_header_storage))
-            SettingsGroupCard(buildList {
-                add { SongCacheSizeRow(songCacheSize, songCacheMaxSize, onSongCacheMaxSizeChange, onClearSongCache) }
-                add { ImageCacheSizeRow(imageCacheSize, imageCacheMaxSize, onImageCacheMaxSizeChange, onClearImageCache) }
-            })
+        if (isScanning) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(enabled = false) {},
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Scanning & syncing library...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1564,6 +1964,7 @@ private fun AccountScreen(
     }
 }
 
+
 @Composable
 private fun DataSaverRow(checked: Boolean, onToggle: (Boolean) -> Unit) {
     ListItem(
@@ -1666,12 +2067,22 @@ private fun AppearanceScreen(
     onDarkModeChange: (Boolean) -> Unit,
     amoledBlack: Boolean,
     onAmoledBlackChange: (Boolean) -> Unit,
+    showAnimatedArt: Boolean,
+    onShowAnimatedArtChange: (Boolean) -> Unit,
     dynamicAlbumTheme: Boolean,
     onDynamicAlbumThemeChange: (Boolean) -> Unit,
     hideNavLabels: Boolean,
     onHideNavLabelsChange: (Boolean) -> Unit,
     dynamicNavStyle: Boolean,
-    onDynamicNavStyleChange: (Boolean) -> Unit
+    onDynamicNavStyleChange: (Boolean) -> Unit,
+    navigationBlur: Boolean,
+    onNavigationBlurChange: (Boolean) -> Unit,
+    tabSwitchBlur: Boolean,
+    onTabSwitchBlurChange: (Boolean) -> Unit,
+    playerTheme: String,
+    onPlayerThemeChange: (String) -> Unit,
+    forceHighRefreshRate: Boolean,
+    onForceHighRefreshRateChange: (Boolean) -> Unit
 ) {
     Scaffold(
         topBar = { SettingsDetailTopBar("Appearance") { navController.popBackStack() } }
@@ -1690,7 +2101,78 @@ private fun AppearanceScreen(
                 if (darkMode) {
                     add { AmoledBlackRow(amoledBlack, onAmoledBlackChange) }
                 }
+                add { HighRefreshRateRow(forceHighRefreshRate, onForceHighRefreshRateChange) }
+            })
+
+            SettingsHeader("Visual Effects")
+            SettingsGroupCard(buildList {
+                add {
+                    ListItem(
+                        headlineContent = { Text("Animated Album Art", style = MaterialTheme.typography.bodyLarge) },
+                        supportingContent = { Text("Show looping video canvas on player screen if available", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        trailingContent = { Switch(checked = showAnimatedArt, onCheckedChange = onShowAnimatedArtChange) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable { onShowAnimatedArtChange(!showAnimatedArt) }
+                    )
+                }
+                add {
+                    var showThemeSheet by remember { mutableStateOf(false) }
+                    val themeText = when (playerTheme) {
+                        "fluid" -> "Fluid Animation (Apple Fluid)"
+                        "static" -> "Static Album Colors"
+                        else -> "Fluid Animation (Apple Fluid)"
+                    }
+                    ListItem(
+                        onClick = { showThemeSheet = true },
+                        content = {
+                            Column {
+                                Text(
+                                    text = "Player Theme",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = themeText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Rounded.Palette,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        },
+                        trailingContent = {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    )
+                    if (showThemeSheet) {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        val bgMode = ctx.getSharedPreferences("AppSettings", android.content.Context.MODE_PRIVATE)
+                            .getString("now_playing_background", "Blurred") ?: "Blurred"
+                        com.codetrio.spatialflow.ui.player.PlayerThemeBottomSheet(
+                            onDismissRequest = { showThemeSheet = false },
+                            currentTheme = playerTheme,
+                            onThemeSelect = { selectedTheme ->
+                                onPlayerThemeChange(selectedTheme)
+                            }
+                        )
+                    }
+                }
                 add { DynamicAlbumThemeRow(dynamicAlbumTheme, onDynamicAlbumThemeChange) }
+                add { NavigationBlurRow(navigationBlur, onNavigationBlurChange) }
+                // Only show tab-blur toggle when blur is enabled globally
+                if (navigationBlur) {
+                    add { TabSwitchBlurRow(tabSwitchBlur, onTabSwitchBlurChange) }
+                }
             })
 
             SettingsHeader("Navigation Bar")
@@ -1700,6 +2182,76 @@ private fun AppearanceScreen(
             })
         }
     }
+}
+
+@Composable
+private fun NavigationBlurRow(checked: Boolean, onToggle: (Boolean) -> Unit) {
+    ListItem(
+        onClick = { onToggle(!checked) },
+        content = {
+            Column {
+                Text(
+                    text = "Blur Effects",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = "Apply blur transitions to screen navigation",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        leadingContent = {
+            Icon(
+                imageVector = Icons.Rounded.Opacity,
+                contentDescription = null,
+                tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onToggle
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    )
+}
+
+@Composable
+private fun TabSwitchBlurRow(checked: Boolean, onToggle: (Boolean) -> Unit) {
+    ListItem(
+        onClick = { onToggle(!checked) },
+        content = {
+            Column {
+                Text(
+                    text = "Tab Switch Blur",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = "Blur on Explore/Library/Effects/Settings tab swaps (GPU-heavy)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        leadingContent = {
+            Icon(
+                imageVector = Icons.Rounded.Opacity,
+                contentDescription = null,
+                tint = if (checked) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(24.dp)
+            )
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onToggle
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    )
 }
 
 @Composable
@@ -1819,6 +2371,37 @@ private fun AmoledBlackRow(checked: Boolean, onToggle: (Boolean) -> Unit) {
 }
 
 @Composable
+private fun HighRefreshRateRow(checked: Boolean, onToggle: (Boolean) -> Unit) {
+    val supportedHighestFps = com.codetrio.spatialflow.util.rememberSupportedHighestFps()
+    val isHighRefreshRateSupported = supportedHighestFps > 60.5f
+
+    ListItem(
+        onClick = { if (isHighRefreshRateSupported) onToggle(!checked) },
+        content = {
+            Column {
+                Text(
+                    text = "Force high refresh rate",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = if (isHighRefreshRateSupported) "Max supported: ${supportedHighestFps.roundToInt()} Hz" else "Not supported on this device",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = onToggle,
+                enabled = isHighRefreshRateSupported
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    )
+}
+
+@Composable
 private fun PlaybackScreen(
     navController: androidx.navigation.NavController,
     crossfadeEnabled: Boolean,
@@ -1827,6 +2410,8 @@ private fun PlaybackScreen(
     onCrossfadeDurationChange: (Float) -> Unit,
     audioFocus: Boolean,
     onAudioFocusToggle: (Boolean) -> Unit,
+    autoplayEnabled: Boolean,
+    onAutoplayToggle: (Boolean) -> Unit,
     sleepTimerEndTime: Long,
     sleepTimerMode: PlayerSharedViewModel.SleepTimerMode,
     onStartSleepTimer: (Int) -> Unit,
@@ -1865,6 +2450,11 @@ private fun PlaybackScreen(
                 { AudioFocusRow(audioFocus, onAudioFocusToggle) }
             ))
 
+            SettingsHeader("Queue & Autoplay")
+            SettingsGroupCard(listOf(
+                { AutoplayRow(autoplayEnabled, onAutoplayToggle) }
+            ))
+
             SettingsHeader("Volume Controls")
             SettingsGroupCard(listOf(
                 { VolumeNormalizationRow(volumeNormalizationEnabled, onVolumeNormalizationChange, targetLufs, onTargetLufsChange) }
@@ -1877,6 +2467,8 @@ private fun PlaybackScreen(
         }
     }
 }
+
+
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -2175,25 +2767,166 @@ private fun WhatsNewScreen(navController: androidx.navigation.NavController) {
                                 shape = getSettingsSegmentedShape(index = 1, count = 2),
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh
                             ) {
-                                val cleanedBody = release.changelog
-                                    .replace(Regex("\\*\\*(.*?)\\*\\*"), "$1") // bold
-                                    .replace(Regex("__(.*?)__"), "$1") // bold
-                                    .replace(Regex("### (.*)"), "$1") // headers
-                                    .replace(Regex("## (.*)"), "$1")
-                                    .replace(Regex("# (.*)"), "$1")
-                                    .trim()
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val rawChangelog = release.changelog ?: ""
+                                    val lines = rawChangelog.split("\n")
+                                    
+                                    lines.forEach { line ->
+                                        val trimmed = line.trim()
+                                        if (trimmed.isEmpty()) return@forEach
+                                        
+                                        // Try to parse line as an Image or GIF
+                                        val imgUrl = when {
+                                            trimmed.startsWith("![") -> {
+                                                Regex("!\\s*\\[.*?\\]\\s*\\((.*?)\\)").find(trimmed)?.groupValues?.getOrNull(1)
+                                            }
+                                            trimmed.startsWith("<img", ignoreCase = true) -> {
+                                                Regex("<img.*?src=[\"'](.*?)[\"'].*?>", RegexOption.IGNORE_CASE).find(trimmed)?.groupValues?.getOrNull(1)
+                                            }
+                                            trimmed.startsWith("http") && trimmed.contains(Regex("\\.(gif|png|jpe?g|webp)", RegexOption.IGNORE_CASE)) -> {
+                                                trimmed
+                                            }
+                                            else -> null
+                                        }
 
-                                ListItem(
-                                    headlineContent = {
-                                        Text(
-                                            text = cleanedBody,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    },
-                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                                )
-                            }
+                                        if (imgUrl != null) {
+                                            var isImgLoading by remember(imgUrl) { mutableStateOf(true) }
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .defaultMinSize(minHeight = 120.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                            ) {
+                                                coil.compose.AsyncImage(
+                                                    model = coil.request.ImageRequest.Builder(LocalContext.current)
+                                                        .data(imgUrl.trim())
+                                                        .crossfade(true)
+                                                        .build(),
+                                                    contentDescription = "Release Image",
+                                                    onState = { state ->
+                                                        isImgLoading = state !is coil.compose.AsyncImagePainter.State.Success
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .wrapContentHeight(),
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                                                )
+                                                if (isImgLoading) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .matchParentSize()
+                                                            .shimmerEffect()
+                                                    )
+                                                }
+                                            }
+                                            return@forEach
+                                        }
+
+                                        // Clean bold markdown markers (e.g. **bold**)
+                                        val cleanLine = trimmed
+                                            .replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
+                                            .replace(Regex("__(.*?)__"), "$1")
+                                        
+                                        val primaryColor = MaterialTheme.colorScheme.primary
+
+                                        when {
+                                            // 1. Headers: #, ##, ###, ####
+                                            cleanLine.startsWith("#") -> {
+                                                val cleanHeader = cleanLine.replace(Regex("^#+\\s*"), "")
+                                                Text(
+                                                    text = cleanHeader,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = primaryColor,
+                                                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                                                )
+                                            }
+                                            // 2. Callout Boxes: Important:, Note:, Warning:
+                                            cleanLine.startsWith("Important:", ignoreCase = true) ||
+                                            cleanLine.startsWith("Note:", ignoreCase = true) ||
+                                            cleanLine.startsWith("Warning:", ignoreCase = true) -> {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
+                                                        .padding(vertical = 4.dp)
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(primaryColor.copy(alpha = 0.08f))
+                                                        .padding(vertical = 8.dp, horizontal = 12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .width(4.dp)
+                                                            .fillMaxHeight()
+                                                            .background(primaryColor, RoundedCornerShape(2.dp))
+                                                    )
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Text(
+                                                        text = cleanLine,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        lineHeight = 20.sp,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                }
+                                            }
+                                            // 3. Bullet points (List items)
+                                            cleanLine.startsWith("•") || cleanLine.startsWith("-") || cleanLine.startsWith("*") -> {
+                                                val cleanBullet = cleanLine
+                                                    .removePrefix("•")
+                                                    .removePrefix("-")
+                                                    .removePrefix("*")
+                                                    .trim()
+                                                
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                                                    verticalAlignment = Alignment.Top
+                                                 ) {
+                                                     Text(
+                                                         text = "•",
+                                                         style = MaterialTheme.typography.bodyMedium,
+                                                         color = primaryColor,
+                                                         modifier = Modifier.padding(end = 8.dp)
+                                                     )
+                                                     Text(
+                                                         text = cleanBullet,
+                                                         style = MaterialTheme.typography.bodyMedium,
+                                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                         modifier = Modifier.weight(1f),
+                                                         lineHeight = 20.sp
+                                                     )
+                                                 }
+                                             }
+                                             // 4. Horizontal Dividers: ---
+                                             cleanLine == "---" -> {
+                                                 Box(
+                                                     modifier = Modifier
+                                                         .fillMaxWidth()
+                                                         .padding(vertical = 8.dp)
+                                                         .height(1.dp)
+                                                         .background(MaterialTheme.colorScheme.outlineVariant)
+                                                 )
+                                             }
+                                             // 5. Standard paragraph text
+                                             else -> {
+                                                 Text(
+                                                     text = cleanLine,
+                                                     style = MaterialTheme.typography.bodyMedium,
+                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                     lineHeight = 20.sp
+                                                 )
+                                             }
+                                         }
+                                     }
+                                 }
+                             }
                         }
                     }
                 }
@@ -2293,6 +3026,10 @@ private fun AboutScreen(
             
             Spacer(modifier = Modifier.height(32.dp))
             
+            DonateCard(onOpenUrl)
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
             // Credits Card
             CreditsCard(onOpenUrl)
         }
@@ -2334,7 +3071,7 @@ private fun SettingsGroupCard(items: List<@Composable () -> Unit>) {
     }
 }
 
-private fun getSettingsSegmentedShape(index: Int, count: Int): androidx.compose.ui.graphics.Shape {
+private fun getSettingsSegmentedShape(index: Int, count: Int): Shape {
     val outer = 32.dp
     val inner = 4.dp
     return when {
@@ -2511,10 +3248,30 @@ private fun AudioFocusRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
     ListItem(
         onClick = { onToggle(!enabled) },
         content = {
-            Text(
-                text = stringResource(R.string.setting_audio_focus),
-                style = MaterialTheme.typography.bodyLarge
-            )
+            Column {
+                Text(
+                    text = stringResource(R.string.setting_audio_focus),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                AnimatedContent(
+                    targetState = enabled,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
+                        fadeOut(animationSpec = tween(90))
+                    },
+                    label = "audioFocusDesc"
+                ) { isEnabled ->
+                    Text(
+                        text = if (isEnabled) {
+                            "Stop or pause playback when another app plays audio"
+                        } else {
+                            "Do not stop or pause playback when another app plays audio"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         },
         leadingContent = {
             Icon(
@@ -2528,6 +3285,40 @@ private fun AudioFocusRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
         colors = ListItemDefaults.colors(containerColor = Color.Transparent)
     )
 }
+
+// ── Autoplay ─────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AutoplayRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    ListItem(
+        onClick = { onToggle(!enabled) },
+        content = {
+            Column {
+                Text(
+                    text = "Autoplay",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = "Similar songs will play next",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        leadingContent = {
+            Icon(
+                painter = painterResource(R.drawable.ic_queue_music),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+        },
+        trailingContent = { Switch(checked = enabled, onCheckedChange = onToggle) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    )
+}
+
 
 // ── Sleep Timer ─────────────────────────────────────────────────────────────
 
@@ -2858,7 +3649,7 @@ private fun parseCacheSize(sizeStr: String): Long {
             "B" -> value.toLong()
             else -> 0L
         }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         return 0L
     }
 }
@@ -2900,6 +3691,7 @@ private fun ImageCacheSizeRow(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CreditsCard(onOpenUrl: (String) -> Unit) {
+    val context = LocalContext.current
     Column {
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -2914,14 +3706,105 @@ private fun CreditsCard(onOpenUrl: (String) -> Unit) {
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                coil.compose.AsyncImage(
-                    model = "https://github.com/MythicalSHUB.png",
-                    contentDescription = "Shubham Karande",
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                val morphState = rememberExpressiveShapeMorph(
+                    segmentDurationMillis = 1400,
+                    rotationDurationMillis = 12000
                 )
+
+                var isImageLoading by remember { mutableStateOf(true) }
+                val loadedProgress by animateFloatAsState(
+                    targetValue = if (isImageLoading) 0f else 1f,
+                    animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                    label = "loadedProgress"
+                )
+
+                val imageMorph = remember { Morph(MaterialShapes.Cookie6Sided, MaterialShapes.Circle) }
+                val imageMaskShape = MorphShape(imageMorph, loadedProgress)
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(200.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(morphState.morphShape)
+                            .background(
+                                brush = Brush.sweepGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.secondary,
+                                        MaterialTheme.colorScheme.tertiary,
+                                        MaterialTheme.colorScheme.primary
+                                    )
+                                )
+                            )
+                    )
+                    
+                    // Inner separator circle
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                shape = CircleShape
+                            )
+                    )
+
+                    // Static Profile Picture (No movement, morphs to circle when loaded)
+                    coil.compose.AsyncImage(
+                        model = "https://github.com/MythicalSHUB.png",
+                        contentDescription = "Shubham Karande",
+                        onState = { state ->
+                            if (state is coil.compose.AsyncImagePainter.State.Success) {
+                                isImageLoading = false
+                            }
+                        },
+                        modifier = Modifier
+                            .size(108.dp)
+                            .clip(imageMaskShape)
+                            .graphicsLayer {
+                                alpha = loadedProgress
+                            },
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+
+                    // Shimmer loader placeholder
+                    if (loadedProgress < 1f) {
+                        val shimmerColors = listOf(
+                            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                            MaterialTheme.colorScheme.surfaceContainerHighest,
+                            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f)
+                        )
+
+                        val shimmerTransition = rememberInfiniteTransition(label = "shimmer")
+                        val shimmerTranslateX by shimmerTransition.animateFloat(
+                            initialValue = -200f,
+                            targetValue = 200f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1200, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "shimmerTranslateX"
+                        )
+
+                        val shimmerBrush = Brush.linearGradient(
+                            colors = shimmerColors,
+                            start = Offset(shimmerTranslateX - 80f, 0f),
+                            end = Offset(shimmerTranslateX + 80f, 160f)
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .size(108.dp)
+                                .graphicsLayer {
+                                    alpha = 1f - loadedProgress
+                                }
+                                .clip(imageMaskShape)
+                                .background(brush = shimmerBrush)
+                        )
+                    }
+                }
                 
                 Text(
                     text = "Shubham Karande",
@@ -2939,9 +3822,11 @@ private fun CreditsCard(onOpenUrl: (String) -> Unit) {
                 
                 Row(
                     modifier = Modifier.padding(top = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     SocialIconButton(icon = R.drawable.ic_github, onClick = { onOpenUrl("https://github.com/MythicalSHUB") })
+                    SocialIconButton(icon = R.drawable.ic_telegram, onClick = { com.codetrio.spatialflow.util.TelegramHelper.openTelegram(context, domain = "SpatialFlow") })
+                    SocialIconButton(icon = R.drawable.ic_kofi, onClick = { onOpenUrl("https://ko-fi.com/mythicalshub") })
                     SocialIconButton(icon = R.drawable.ic_instagram, onClick = { onOpenUrl("https://instagram.com/mythicalshub") })
                     SocialIconButton(icon = R.drawable.ic_youtube, onClick = { onOpenUrl("https://youtube.com/@8dmusic_s") })
                 }
@@ -2964,6 +3849,77 @@ private fun SocialIconButton(icon: Int, onClick: () -> Unit) {
             modifier = Modifier.size(24.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun DonateCard(onOpenUrl: (String) -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFFFF5E5B).copy(alpha = 0.3f), RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFFF5E5B).copy(alpha = 0.1f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color.White, CircleShape)
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    coil.compose.AsyncImage(
+                        model = "https://storage.ko-fi.com/cdn/brandasset/v2/kofi_symbol.png",
+                        contentDescription = "Ko-fi Symbol",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = "Support SpatialFlow",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Buy me a coffee to support development!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Button(
+                onClick = { onOpenUrl("https://ko-fi.com/mythicalshub") },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFF5E5B),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(16.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Donate",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 
@@ -3123,7 +4079,28 @@ private fun FeedbackScreen(navController: androidx.navigation.NavController) {
                                 val title = URLEncoder.encode("[Bug] ", "UTF-8")
                                 val body = URLEncoder.encode("## Description\n\n\n## Device Information\n$debugInfo\n\n## Steps to Reproduce\n1.\n2.\n3.\n", "UTF-8")
                                 val url = "https://github.com/MythicalSHUB/SpatialFlow/issues/new?title=$title&body=$body"
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                            }
+                        )
+                    },
+                    {
+                        ListItem(
+                            headlineContent = { Text("Report Bug via Telegram", style = MaterialTheme.typography.bodyLarge) },
+                            supportingContent = { Text("Share pre-filled device and app details directly to Telegram", style = MaterialTheme.typography.bodyMedium) },
+                            leadingContent = { Icon(painter = painterResource(id = R.drawable.ic_telegram), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp)) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                val telegramMsg = "SPATIALFLOW BUG REPORT\n\n$debugInfo\n\nDescribe the bug/issue below:\n"
+                                val url = "https://t.me/share/url?url=&text=${URLEncoder.encode(telegramMsg, "UTF-8")}"
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                } catch (e: Exception) {
+                                    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Bug Report", telegramMsg)
+                                    clipboardManager.setPrimaryClip(clip)
+                                    android.widget.Toast.makeText(context, "Report template copied. Paste in Telegram.", android.widget.Toast.LENGTH_LONG).show()
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/SpatialFlow")))
+                                }
                             }
                         )
                     },
@@ -3137,7 +4114,22 @@ private fun FeedbackScreen(navController: androidx.navigation.NavController) {
                                 val title = URLEncoder.encode("[Feature] ", "UTF-8")
                                 val body = URLEncoder.encode("## Feature Description\n\n\n## Why is this needed?\n\n", "UTF-8")
                                 val url = "https://github.com/MythicalSHUB/SpatialFlow/issues/new?title=$title&body=$body"
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+                            }
+                        )
+                    },
+                    {
+                        ListItem(
+                            headlineContent = { Text("Join Telegram Community", style = MaterialTheme.typography.bodyLarge) },
+                            supportingContent = { Text("Chat with the community and developer", style = MaterialTheme.typography.bodyMedium) },
+                            leadingContent = { Icon(painter = painterResource(id = R.drawable.ic_telegram), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp)) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/SpatialFlow")))
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Could not open Telegram link", android.widget.Toast.LENGTH_SHORT).show()
+                                }
                             }
                         )
                     }
@@ -3173,6 +4165,17 @@ private fun FeedbackScreen(navController: androidx.navigation.NavController) {
                                     type = "text/plain"
                                 }
                                 context.startActivity(Intent.createChooser(sendIntent, "Export Logs"))
+                            }
+                        )
+                    },
+                    {
+                        ListItem(
+                            headlineContent = { Text("Simulate Crash", style = MaterialTheme.typography.bodyLarge) },
+                            supportingContent = { Text("Force a runtime exception to test crash report dialog", style = MaterialTheme.typography.bodyMedium) },
+                            leadingContent = { Icon(Icons.Rounded.BugReport, null, tint = MaterialTheme.colorScheme.error) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                throw RuntimeException("Simulated App Crash: The user triggered a test exception.")
                             }
                         )
                     }

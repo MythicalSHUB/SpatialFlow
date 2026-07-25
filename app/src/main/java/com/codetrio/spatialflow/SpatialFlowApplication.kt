@@ -2,6 +2,7 @@ package com.codetrio.spatialflow
 
 import android.annotation.SuppressLint
 import android.app.Application
+import android.os.Build
 import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import coil.ImageLoader
@@ -13,7 +14,9 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.GlideBuilder
 import com.codetrio.spatialflow.data.innertube.InnerTubeClient
 import com.codetrio.spatialflow.data.innertube.NewPipeStreamExtractor
-import com.codetrio.spatialflow.util.CacheManager
+import com.codetrio.spatialflow.ui.player.canvas.CanvasArtworkPlaybackCache
+import com.codetrio.spatialflow.domain.repository.LocalCacheDataSource
+import javax.inject.Inject
 import com.google.android.material.color.DynamicColors
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.launch
@@ -25,6 +28,9 @@ class SpatialFlowApplication : Application(), ImageLoaderFactory {
         lateinit var instance: SpatialFlowApplication
             private set
     }
+
+    @Inject
+    lateinit var localCacheDataSource: LocalCacheDataSource
 
 
     override fun newImageLoader(): ImageLoader {
@@ -43,6 +49,13 @@ class SpatialFlowApplication : Application(), ImageLoaderFactory {
                     .maxSizeBytes(250 * 1024 * 1024) // 250MB size quota for offline artwork persistent caching
                     .build()
             }
+            .components {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    add(coil.decode.ImageDecoderDecoder.Factory())
+                } else {
+                    add(coil.decode.GifDecoder.Factory())
+                }
+            }
             .crossfade(true)
             .crossfade(300) // Expressive 300ms transition fade-in
             .allowHardware(true) // Offload rendering directly to GPU hardware buffers for zero UI thread lag
@@ -55,11 +68,17 @@ class SpatialFlowApplication : Application(), ImageLoaderFactory {
 
     @SuppressLint("VisibleForTests")
     override fun onCreate() {
+        // Initialize global crash interceptor to catch any unexpected errors
+        com.codetrio.spatialflow.util.CrashHandler.init(this)
+
         super.onCreate()
         instance = this
         
         // Proactive Initialization: Connect localized persistence cache to high-speed networking engine
         InnerTubeClient.initialize(this)
+
+        // Initialize canvas motion artwork disk cache
+        CanvasArtworkPlaybackCache.init(this)
 
         // Warm up native FFmpeg binaries in background thread so playback can bind instantly later
         Thread {
@@ -118,6 +137,8 @@ class SpatialFlowApplication : Application(), ImageLoaderFactory {
         Glide.init(this, GlideBuilder().setLogLevel(Log.ERROR))
 
         // Clean up old temp files on app start
-        CacheManager.clearOldCache(this)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            localCacheDataSource.clearOldCache()
+        }
     }
 }

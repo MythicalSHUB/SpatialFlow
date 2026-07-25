@@ -3,6 +3,7 @@ package com.codetrio.spatialflow.viewmodel
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
@@ -27,6 +28,7 @@ import com.codetrio.spatialflow.data.innertube.AccountManager
 import com.codetrio.spatialflow.data.innertube.InnerTubeClient
 import com.codetrio.spatialflow.data.innertube.SearchFilter
 import com.codetrio.spatialflow.data.innertube.SearchItem
+import com.codetrio.spatialflow.data.innertube.NewPipeStreamExtractor
 import com.codetrio.spatialflow.data.innertube.YouTubeMusic
 import com.codetrio.spatialflow.data.innertube.path
 import com.codetrio.spatialflow.model.SongItem
@@ -63,13 +65,31 @@ import kotlin.time.Duration.Companion.milliseconds
  * Migrated from legacy Java/LiveData architecture to StateFlow + Coroutines.
  * Optimized for Material 3 Expressive and Media3 integration.
  */
-@RequiresApi(Build.VERSION_CODES.Q)
 @HiltViewModel
 class PlayerSharedViewModel @Inject constructor(
     private val application: Application,
     private val playlistDao: PlaylistDao
 ) : AndroidViewModel(application) {
     
+    private val appContext: Context get() = application.applicationContext
+
+    private val _streamingQuality = MutableStateFlow(
+        appContext.getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
+            .getString("audio_quality", "High") ?: "High"
+    )
+    val streamingQuality: StateFlow<String> = _streamingQuality.asStateFlow()
+
+    private val _playbackFormat = MutableStateFlow("OPUS")
+    val playbackFormat: StateFlow<String> = _playbackFormat.asStateFlow()
+
+    fun updatePlaybackFormat(format: String) {
+        if (_playbackFormat.value != format) {
+            _playbackFormat.value = format
+        }
+    }
+
+
+
     val bgScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
 
     fun cleanupBgScope() {
@@ -269,7 +289,7 @@ class PlayerSharedViewModel @Inject constructor(
 
     fun getSongsForLocalPlaylist(playlistId: Long) = playlistDao.getSongsForPlaylist(playlistId)
 
-    private val appContext: Context get() = application.applicationContext
+
 
     companion object {
         private const val TAG = "PlayerSharedViewModel"
@@ -312,6 +332,11 @@ class PlayerSharedViewModel @Inject constructor(
                         if (value.getCurrentSourceUri() != restoredUri) {
                             Log.d(TAG, "Cold-start pre-loading restored song: ${restoredSong.title} at pos $restoredPos")
                             value.loadAudio(restoredUri, restoredPos)
+                            if (restoredSong.thumbnailUrl != null) {
+                                value.setSongMetadataByUrl(restoredSong.title, restoredSong.thumbnailUrl)
+                            } else {
+                                value.setSongMetadataById(restoredSong.title, restoredSong.albumId)
+                            }
                         } else {
                             Log.d(TAG, "Skipping cold-start pre-loading: song is already active in service")
                         }
@@ -405,6 +430,9 @@ class PlayerSharedViewModel @Inject constructor(
 
     private val _currentSongArtwork = MutableStateFlow<ByteArray?>(null)
 
+    private val _canvasArtwork = MutableStateFlow<com.codetrio.spatialflow.ui.player.canvas.CanvasArtwork?>(null)
+    val canvasArtwork: StateFlow<com.codetrio.spatialflow.ui.player.canvas.CanvasArtwork?> = _canvasArtwork.asStateFlow()
+
     private val _shouldPromptEffects = MutableStateFlow(false)
 
     private val _effectsRefreshTrigger = MutableStateFlow(false)
@@ -417,20 +445,18 @@ class PlayerSharedViewModel @Inject constructor(
     private val _is8DEnabled = MutableStateFlow(false)
     val is8DEnabled: StateFlow<Boolean> = _is8DEnabled.asStateFlow()
 
-    private val _isBassEnabled = MutableStateFlow(false)
-    val isBassEnabled: StateFlow<Boolean> = _isBassEnabled.asStateFlow()
-
     private val _isReverbEnabled = MutableStateFlow(false)
     val isReverbEnabled: StateFlow<Boolean> = _isReverbEnabled.asStateFlow()
 
     private val _reverbPreset = MutableStateFlow<Short>(0)
     val reverbPreset: StateFlow<Short> = _reverbPreset.asStateFlow()
 
+    private val _reverbIntensity = MutableStateFlow(1.0f)
+    val reverbIntensity: StateFlow<Float> = _reverbIntensity.asStateFlow()
+    val reverbLevel: StateFlow<Float> = _reverbIntensity.asStateFlow()
+
     private val _speed8D = MutableStateFlow(0.2f)
     val speed8D: StateFlow<Float> = _speed8D.asStateFlow()
-
-    private val _bassBoost = MutableStateFlow(0)
-    val bassBoost: StateFlow<Int> = _bassBoost.asStateFlow()
 
     // 5-Band Equalizer
     private val _isEqualizerEnabled = MutableStateFlow(false)
@@ -613,7 +639,8 @@ class PlayerSharedViewModel @Inject constructor(
     private var engagementJob: Job? = null
 
     private fun fetchEngagementAndHistoryForSong(song: SongItem) {
-        if (song.videoId.isNullOrEmpty()) {
+        val videoId = song.videoId
+        if (videoId.isNullOrEmpty()) {
             baseLikesCountInt = 0
             _likesCount.value = "Like"
             return
@@ -628,8 +655,28 @@ class PlayerSharedViewModel @Inject constructor(
                 }
                 baseLikesCountInt = 0
 
-                // Fetch player info for likes count
-                val playerResult = YouTubeMusic.player(song.videoId).getOrNull()
+                // Fetch player info for likes count and animated thumbnail directly from WebRemix
+                val playerJson = com.codetrio.spatialflow.data.innertube.InnerTubeClient.playerWebRemix(videoId)
+                val playerResult = com.codetrio.spatialflow.data.innertube.InnerTubeParser.parsePlayerResponse(playerJson, parseStreams = false)
+
+                // ── RESOLVE CANVAS ARTWORK (MOTION ARTWORK) ──
+                launch {
+                    try {
+                        val resolved = com.codetrio.spatialflow.ui.player.canvas.resolveCanvasArtworkForPlayback(
+                            mediaId = videoId,
+                            songTitleRaw = song.title,
+                            artistNameRaw = song.artist,
+                            albumTitleRaw = null, // Can be improved if album name is available in SongItem
+                            requireVertical = true
+                        )
+                        if (resolved != null) {
+                            Log.d("CanvasArtwork", "Resolved canvas for ${song.title}: ${resolved.preferredVerticalAnimationUrl}")
+                            _canvasArtwork.value = resolved
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CanvasArtwork", "Error resolving canvas for ${song.title}: ${e.message}")
+                    }
+                }
 
                 // Fallback Chain for Real Likes Count
                 var likesCountStr = playerResult?.likesCount
@@ -637,7 +684,7 @@ class PlayerSharedViewModel @Inject constructor(
 
                 // Always try nextYoutubeWeb endpoint (highly reliable for authenticated like status and guest likes)
                 try {
-                    val nextYoutubeWebJson = InnerTubeClient.nextYoutubeWeb(song.videoId)
+                    val nextYoutubeWebJson = InnerTubeClient.nextYoutubeWeb(videoId)
                     remoteLikeStatus = parseLikeStatusFromNextResponse(nextYoutubeWebJson)
                     if (likesCountStr.isNullOrBlank()) {
                         likesCountStr = parseLikesFromNextResponse(nextYoutubeWebJson)
@@ -893,14 +940,41 @@ class PlayerSharedViewModel @Inject constructor(
 
     // ========== INITIALIZATION ==========
 
+    private val appSettingsPrefListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+        if (key == "autoplay_enabled") {
+            val enabled = sharedPreferences.getBoolean("autoplay_enabled", true)
+            if (_isAutoplayEnabled.value != enabled) {
+                bgScope.launch(Dispatchers.Main) {
+                    setAutoplayEnabled(enabled)
+                }
+            }
+        } else if (key == "audio_quality") {
+            _streamingQuality.value = sharedPreferences.getString("audio_quality", "High") ?: "High"
+        }
+    }
+
     init {
+        com.codetrio.spatialflow.ui.player.canvas.CanvasArtworkPlaybackCache.init(appContext)
         initFavorites(appContext)
         loadLastPlaybackState()
+        appContext.getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(appSettingsPrefListener)
         bgScope.launch(Dispatchers.Main) {
             currentSong.collect { song ->
                 _likesCount.value = "Like"
                 _isCurrentSongDisliked.value = false
+                _canvasArtwork.value = null
+
+                // Reset lyrics state & provider locks on song change
+                lyricsController.clearForSongChange(song)
+
                 if (song != null) {
+                    playedShuffledIds.add(song.id)
+                    checkQueueAndFetchMore()
+
+                    // Automatically fetch lyrics for the active song across all song change scenarios
+                    fetchLyricsForCurrentSong()
+
                     // Load embedded artwork bytes for legacy notification/artwork references
                     val embedded = withContext(Dispatchers.IO) { song.getEmbeddedPicture(appContext) }
                     _currentSongArtwork.value = embedded
@@ -1120,8 +1194,32 @@ class PlayerSharedViewModel @Inject constructor(
 
             withContext(Dispatchers.Main) {
                 if (lastQueue.isNotEmpty()) {
-                    _songList.value = ArrayList(lastQueue)
-                    _currentSongIndex.value = lastIndex
+                    val fullIndex = lastIndex.coerceIn(0, lastQueue.lastIndex)
+                    val windowStart = (fullIndex - 20).coerceAtLeast(0)
+                    val windowEnd = (fullIndex + 50).coerceAtMost(lastQueue.size)
+                    val initialChunk = lastQueue.subList(windowStart, windowEnd)
+
+                    _songList.value = ArrayList(initialChunk)
+                    _currentSongIndex.value = fullIndex - windowStart
+
+                    bgScope.launch {
+                        delay(2000)
+                        val currentList = _songList.value.toMutableList()
+                        if (currentList.size == initialChunk.size && currentList.zip(initialChunk).all { it.first.id == it.second.id }) {
+                            val beforeList = lastQueue.subList(0, windowStart)
+                            val afterList = lastQueue.subList(windowEnd, lastQueue.size)
+
+                            val mergedList = mutableListOf<SongItem>()
+                            mergedList.addAll(beforeList)
+                            mergedList.addAll(currentList)
+                            mergedList.addAll(afterList)
+
+                            _songList.value = mergedList
+                            _currentSongIndex.value = fullIndex
+                            audioService?.refreshNativeQueue()
+                            Log.d(TAG, "⚡ Chunky Hydration: Backfilled remaining queue. New size: ${mergedList.size}")
+                        }
+                    }
                 } else {
                     _songList.value = listOf(lastSong)
                     _currentSongIndex.value = 0
@@ -1161,12 +1259,12 @@ class PlayerSharedViewModel @Inject constructor(
     val isProcessingFlow get() = isProcessing
     val processingProgressFlow get() = processingProgress
     val isEqualizerEnabledFlow get() = isEqualizerEnabled
-    val isBassEnabledFlow get() = isBassEnabled
     val isReverbEnabledFlow get() = isReverbEnabled
     val isLoudnessEnabledFlow get() = isLoudnessEnabled
     val is8DEnabledFlow get() = is8DEnabled
-    val bassBoostFlow get() = bassBoost
     val reverbPresetFlow get() = reverbPreset
+    val reverbIntensityFlow get() = reverbIntensity
+    val reverbLevelFlow get() = reverbLevel
     val loudnessGainFlow get() = loudnessGain
     val balanceFlow get() = balance
     val playbackSpeedFlow get() = playbackSpeed
@@ -1223,8 +1321,6 @@ class PlayerSharedViewModel @Inject constructor(
             _isCurrentSongDisliked.value = false
         }
 
-        audioService?.updateWidgetState(_isPlaying.value)
-
         // Sync like status to YouTube Music in the background
         if (!song.videoId.isNullOrEmpty()) {
             bgScope.launch(Dispatchers.IO) {
@@ -1264,8 +1360,6 @@ class PlayerSharedViewModel @Inject constructor(
                 updateLikesCountDisplay(false)
             }
         }
-
-        audioService?.updateWidgetState(_isPlaying.value)
 
         // Sync dislike status to YouTube Music in the background
         if (!song.videoId.isNullOrEmpty()) {
@@ -1308,9 +1402,6 @@ class PlayerSharedViewModel @Inject constructor(
         _currentSongIndex.value = index
         if (index in _songList.value.indices) {
             val song = _songList.value[index]
-            if (_currentSong.value?.id != song.id) {
-                lyricsController.clearForSongChange(song)
-            }
             _currentSong.value = song
         }
     }
@@ -1328,12 +1419,14 @@ class PlayerSharedViewModel @Inject constructor(
 
     fun fetchLyricsForCurrentSong() = fetchLyrics()
 
+
+
     fun setLyricsModeEnabled(enabled: Boolean) {
-        lyricsController.setLyricsModeEnabled(enabled)
+        lyricsController.setLyricsModeEnabled(enabled, appContext, _currentSong.value)
     }
 
     fun selectLyricsProvider(providerName: String) {
-        lyricsController.selectProvider(providerName)
+        lyricsController.selectProvider(providerName, appContext, _currentSong.value)
     }
 
 
@@ -1363,33 +1456,31 @@ class PlayerSharedViewModel @Inject constructor(
         audioService?.set8DEnabled(enabled)
     }
 
-    fun setBassEnabled(enabled: Boolean) {
-        _isBassEnabled.value = enabled
-        audioService?.setBassEnabled(enabled)
-    }
-
-    fun setBassBoost(boost: Int) {
-        _bassBoost.value = boost
-        if (audioService != null) {
-            if (_isEqualizerEnabled.value && boost > 0) {
-                if (_eqBand1.value > 500) setEqBand1(500)
-            }
-            audioService?.setBassBoost(boost)
-        }
-    }
-
     fun setReverbEnabled(enabled: Boolean) {
         if (enabled && _is8DEnabled.value) {
             set8DEnabled(false)
         }
         _isReverbEnabled.value = enabled
         audioService?.setReverbEnabled(enabled)
+        
+        if (enabled && _reverbPreset.value.toInt() == 0) {
+            setReverbPreset(1)
+        }
     }
 
     fun setReverbPreset(preset: Int) {
         val shortPreset = preset.toShort()
         _reverbPreset.value = shortPreset
         audioService?.setReverbPreset(shortPreset)
+    }
+
+    fun setReverbIntensity(intensity: Float) {
+        _reverbIntensity.value = intensity.coerceIn(0f, 1f)
+        audioService?.setReverbIntensity(intensity)
+    }
+
+    fun setReverbLevel(level: Float) {
+        setReverbIntensity(level)
     }
 
     fun setEqualizerEnabled(enabled: Boolean) {
@@ -1453,10 +1544,72 @@ class PlayerSharedViewModel @Inject constructor(
         _localSongs.value = songs
     }
 
-    fun setCurrentSong(song: SongItem?) {
-        if (_currentSong.value?.id != song?.id) {
-            lyricsController.clearForSongChange(song)
+    fun rescanLocalFiles() {
+        bgScope.launch(Dispatchers.IO) {
+            val songs = mutableListOf<SongItem>()
+            try {
+                val proj = arrayOf(
+                    android.provider.MediaStore.Audio.Media._ID,
+                    android.provider.MediaStore.Audio.Media.TITLE,
+                    android.provider.MediaStore.Audio.Media.ARTIST,
+                    android.provider.MediaStore.Audio.Media.ALBUM_ID,
+                    android.provider.MediaStore.Audio.Media.DATA,
+                    android.provider.MediaStore.Audio.Media.DURATION,
+                    android.provider.MediaStore.Audio.Media.DATE_ADDED
+                )
+                val prefs = appContext.getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
+                val hiddenFolders = (prefs.getString("hidden_folders", "") ?: "").split("||").filter { it.isNotEmpty() }
+                val ignoreShort = prefs.getBoolean("ignore_short_audio", false)
+                val minDurationMs = if (ignoreShort) prefs.getFloat("ignore_short_audio_duration", 30f).toLong() * 1000L else 0L
+
+                appContext.contentResolver.query(
+                    android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    proj,
+                    "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0",
+                    null,
+                    "${android.provider.MediaStore.Audio.Media.TITLE} ASC"
+                )?.use { c ->
+                    val idCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media._ID)
+                    val titleCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE)
+                    val artistCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST)
+                    val albumCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ALBUM_ID)
+                    val dataCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
+                    val durCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DURATION)
+                    val dateCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATE_ADDED)
+                    while (c.moveToNext()) {
+                        val path = c.getString(dataCol)
+                        if (path != null && hiddenFolders.any { path.startsWith(it) }) {
+                            continue
+                        }
+                        val duration = c.getLong(durCol)
+                        if (ignoreShort && duration < minDurationMs) {
+                            continue
+                        }
+
+                        songs.add(
+                            SongItem(
+                                c.getLong(idCol),
+                                c.getString(titleCol),
+                                c.getString(artistCol),
+                                c.getLong(albumCol),
+                                c.getString(dataCol),
+                                c.getLong(durCol),
+                                c.getLong(dateCol)
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("PlayerSharedViewModel", "Error scanning local files", e)
+            }
+
+            withContext(Dispatchers.Main) {
+                setLocalSongs(songs)
+            }
         }
+    }
+
+    fun setCurrentSong(song: SongItem?) {
         _currentSong.value = song
     }
 
@@ -1484,9 +1637,9 @@ class PlayerSharedViewModel @Inject constructor(
         }
 
         _currentSongIndex.value = index
-        lyricsController.clearForSongChange(song)
         _currentSong.value = song
         _songUri.value = song.contentUri
+        
         _isPlaybackReady.value = false
 
         if (hasActiveEffects()) {
@@ -1567,6 +1720,8 @@ class PlayerSharedViewModel @Inject constructor(
 
     fun dismissPlayer() {
         _currentSong.value = null
+        _songList.value = emptyList()
+        PlaybackStateManager.clear(appContext)
         audioService?.dismissService()
     }
 
@@ -1601,9 +1756,13 @@ class PlayerSharedViewModel @Inject constructor(
         if (nextIndex >= 0) {
             playSongAtIndex(nextIndex)
         } else {
-            _currentSong.value?.videoId?.let {
-                YouTubeMusic.fetchAndAppendRelatedSongs(this, it)
-            } ?: audioService?.pause()
+            if (_isAutoplayEnabled.value) {
+                _currentSong.value?.videoId?.let {
+                    checkQueueAndFetchMore()
+                } ?: audioService?.pause()
+            } else {
+                audioService?.pause()
+            }
         }
     }
 
@@ -1651,9 +1810,16 @@ class PlayerSharedViewModel @Inject constructor(
 
         if (mode == REPEAT_ONE) return if (currentIdx >= 0) currentIdx else 0
         if (shuffle && songs.size > 1) {
-            var next = currentIdx
-            while (next == currentIdx) next = shuffleRandom.nextInt(songs.size)
-            return next
+            val unplayed = songs.filter { it.id !in playedShuffledIds }
+            if (unplayed.isNotEmpty()) {
+                val nextSong = unplayed[shuffleRandom.nextInt(unplayed.size)]
+                return songs.indexOfFirst { it.id == nextSong.id }
+            } else {
+                // All songs played!
+                playedShuffledIds.clear()
+                _currentSong.value?.id?.let { playedShuffledIds.add(it) }
+                return -1
+            }
         }
 
         val next = currentIdx + 1
@@ -1663,12 +1829,16 @@ class PlayerSharedViewModel @Inject constructor(
     }
 
     private fun prefetchNextPredictedSongs() {
-        val nextIdx = getNextSongIndex()
-        if (nextIdx >= 0) {
-            val songs = _songList.value
-            if (nextIdx < songs.size) {
-                songs[nextIdx].videoId?.let { YouTubeMusic.prefetchStream(it) }
-            }
+        val songs = _songList.value
+        val currentIdx = _currentSongIndex.value
+        // Collect the next 2 online songs (skip local files which don't need URL resolution)
+        val idsToWarm = (1..2)
+            .map { offset -> currentIdx + offset }
+            .filter { idx -> idx in songs.indices }
+            .mapNotNull { idx -> songs[idx].videoId }
+            .filter { it.isNotEmpty() }
+        if (idsToWarm.isNotEmpty()) {
+            NewPipeStreamExtractor.warmCache(idsToWarm)
         }
     }
 
@@ -1680,7 +1850,8 @@ class PlayerSharedViewModel @Inject constructor(
     fun specPrefetch(song: SongItem) {
         specJob?.cancel()
         specJob = bgScope.launch(Dispatchers.IO) {
-            song.videoId?.let { YouTubeMusic.prefetchStream(it) }
+            // Warm full PlayerResult cache (URL + metadata) not just the URL
+            song.videoId?.let { NewPipeStreamExtractor.warmCache(listOf(it)) }
         }
     }
 
@@ -1704,6 +1875,37 @@ class PlayerSharedViewModel @Inject constructor(
             }
             in toIndex..<fromIndex -> {
                 _currentSongIndex.value = currentIdx + 1
+            }
+        }
+        _songList.value = newList
+        audioService?.refreshNativeQueue()
+    }
+
+    fun removeSongAtIndex(index: Int) {
+        val songs = _songList.value
+        if (index !in songs.indices) return
+        PlayerHapticManager.triggerInteractionHaptic(appContext, "haptic_queue")
+
+        val newList = ArrayList(songs)
+        newList.removeAt(index)
+
+        val currentIdx = _currentSongIndex.value
+        when {
+            songs.size <= 1 -> {
+                _songList.value = emptyList()
+                _currentSongIndex.value = -1
+                _currentSong.value = null
+                audioService?.stop()
+                return
+            }
+            index == currentIdx -> {
+                val nextIndex = if (index >= newList.size) newList.size - 1 else index
+                _songList.value = newList
+                playSongAtIndex(nextIndex)
+                return
+            }
+            index < currentIdx -> {
+                _currentSongIndex.value = currentIdx - 1
             }
         }
         _songList.value = newList
@@ -1735,7 +1937,7 @@ class PlayerSharedViewModel @Inject constructor(
     // ========== UTILS ==========
 
     fun hasActiveEffects(): Boolean {
-        return _is8DEnabled.value || _isBassEnabled.value || _isEqualizerEnabled.value || 
+        return _is8DEnabled.value || _isEqualizerEnabled.value || 
                _isLoudnessEnabled.value || _isReverbEnabled.value
     }
 
@@ -1752,15 +1954,219 @@ class PlayerSharedViewModel @Inject constructor(
         if (_isShuffleEnabled.value != enabled) {
             _isShuffleEnabled.value = enabled
             audioService?.setShuffleModeEnabled(enabled)
+            if (enabled) {
+                playedShuffledIds.clear()
+                _currentSong.value?.let { playedShuffledIds.add(it.id) }
+            }
         }
     }
     fun toggleShuffle() {
         setShuffleEnabled(!_isShuffleEnabled.value)
     }
 
+    // ── Autoplay (Infinite Queue) ──
+    private val playedShuffledIds = mutableSetOf<Long>()
+    private val autoAddedMediaIds = mutableSetOf<String>()
+    
+    // Endless Queue
+    var currentQueue: com.codetrio.spatialflow.player.queue.Queue? = null
+
+    fun setQueue(queue: com.codetrio.spatialflow.player.queue.Queue, startIndex: Int = 0) {
+        currentQueue = queue
+        synchronized(autoAddedMediaIds) { autoAddedMediaIds.clear() }
+        
+        val preload = queue.preloadItem
+        if (preload != null) {
+            setSongList(listOf(preload))
+            playSongAtIndex(0)
+        }
+        
+        bgScope.launch(Dispatchers.IO) {
+            try {
+                val status = queue.getInitialStatus()
+                withContext(Dispatchers.Main) {
+                    if (!_isAutoplayEnabled.value && queue is com.codetrio.spatialflow.player.queue.YouTubeQueue) {
+                        val singleSong = preload ?: status.items.getOrNull(status.mediaItemIndex)
+                        if (singleSong != null) {
+                            setSongList(listOf(singleSong))
+                            playSongAtIndex(0)
+                        } else {
+                            setSongList(status.items)
+                            val matchedIndex = if (preload != null) {
+                                val idx = status.items.indexOfFirst { it.id == preload.id }
+                                if (idx >= 0) idx else status.mediaItemIndex
+                            } else {
+                                status.mediaItemIndex
+                            }
+                            if (matchedIndex in status.items.indices) {
+                                playSongAtIndex(matchedIndex)
+                            }
+                        }
+                    } else {
+                        setSongList(status.items)
+                        val matchedIndex = if (preload != null) {
+                            val idx = status.items.indexOfFirst { it.id == preload.id }
+                            if (idx >= 0) idx else status.mediaItemIndex
+                        } else {
+                            status.mediaItemIndex
+                        }
+                        
+                        if (queue is com.codetrio.spatialflow.player.queue.YouTubeQueue) {
+                            synchronized(autoAddedMediaIds) {
+                                status.items.forEach { item ->
+                                    if (item.id != preload?.id) {
+                                        item.videoId?.let { autoAddedMediaIds.add(it) }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (matchedIndex in status.items.indices) {
+                            if (preload != null && status.items[matchedIndex].id == preload.id) {
+                                updateSongIndexOnly(matchedIndex)
+                                if (status.position > 0) {
+                                    audioService?.seekTo(status.position.toInt())
+                                }
+                            } else {
+                                playSongAtIndex(matchedIndex)
+                                if (status.position > 0) {
+                                    audioService?.seekTo(status.position.toInt())
+                                }
+                            }
+                        } else if (status.items.isNotEmpty()) {
+                            playSongAtIndex(0)
+                            if (status.position > 0) {
+                                audioService?.seekTo(status.position.toInt())
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load initial queue status", e)
+            }
+        }
+    }
+
+    fun checkQueueAndFetchMore() {
+        if (!_isAutoplayEnabled.value) return
+        val queue = currentQueue ?: return
+        val currentIdx = _currentSongIndex.value
+        val listSize = _songList.value.size
+        
+        // Auto-Load continuation Pages (Auto-Load More)
+        if (listSize - currentIdx <= 5 && queue.hasNextPage()) {
+            bgScope.launch(Dispatchers.IO) {
+                try {
+                    val nextItems = queue.nextPage()
+                    if (nextItems.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            if (_isAutoplayEnabled.value) {
+                                synchronized(autoAddedMediaIds) {
+                                    nextItems.forEach { it.videoId?.let { id -> autoAddedMediaIds.add(id) } }
+                                }
+                                addSongsToQueue(nextItems)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to fetch next queue page", e)
+                }
+            }
+        } else if (listSize - currentIdx <= 3 && !queue.hasNextPage() && _isAutoplayEnabled.value) {
+            // Bootstrapping Infinite Autoplay (YouTube Radio)
+            val currentSong = _currentSong.value
+            if (currentSong != null && !currentSong.videoId.isNullOrEmpty()) {
+                val radioQueue = com.codetrio.spatialflow.player.queue.YouTubeQueue.radio(currentSong)
+                currentQueue = radioQueue
+                bgScope.launch(Dispatchers.IO) {
+                    try {
+                        val status = radioQueue.getInitialStatus()
+                        val existingIds = _songList.value.mapNotNull { it.videoId }.toSet()
+                        val newItems = status.items.filter { it.videoId != null && it.videoId !in existingIds }
+                        if (newItems.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                if (_isAutoplayEnabled.value) {
+                                    synchronized(autoAddedMediaIds) {
+                                        newItems.forEach { it.videoId?.let { id -> autoAddedMediaIds.add(id) } }
+                                    }
+                                    addSongsToQueue(newItems)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to handoff to radio", e)
+                    }
+                }
+            }
+        }
+    }
+
+    private val _isAutoplayEnabled = MutableStateFlow(
+        appContext.getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
+            .getBoolean("autoplay_enabled", true)
+    )
+    val isAutoplayEnabled: StateFlow<Boolean> = _isAutoplayEnabled.asStateFlow()
+
+    fun setAutoplayEnabled(enabled: Boolean) {
+        _isAutoplayEnabled.value = enabled
+        appContext.getSharedPreferences("AppSettings", Context.MODE_PRIVATE).edit {
+            putBoolean("autoplay_enabled", enabled)
+        }
+        if (enabled) {
+            if (currentQueue == null) {
+                val currentSong = _currentSong.value
+                if (currentSong != null && !currentSong.videoId.isNullOrEmpty()) {
+                    currentQueue = com.codetrio.spatialflow.player.queue.YouTubeQueue.radio(currentSong)
+                }
+            }
+            checkQueueAndFetchMore()
+        } else {
+            onInfiniteQueueDisabled()
+        }
+    }
+
+    fun onInfiniteQueueDisabled() {
+        val currentIdx = _currentSongIndex.value
+        val songs = _songList.value
+        if (currentIdx in songs.indices) {
+            val currentSong = songs[currentIdx]
+            if (currentQueue is com.codetrio.spatialflow.player.queue.YouTubeQueue) {
+                _songList.value = listOf(currentSong)
+                _currentSongIndex.value = 0
+            } else {
+                val idsToRemove = synchronized(autoAddedMediaIds) { autoAddedMediaIds.toSet() }
+                val newList = songs.toMutableList()
+                // Purges future automatically injected recommendations
+                for (i in newList.size - 1 downTo 0) {
+                    if (i == currentIdx) continue
+                    val song = newList[i]
+                    if (!song.videoId.isNullOrEmpty() && song.videoId in idsToRemove) {
+                        newList.removeAt(i)
+                    }
+                }
+                _songList.value = newList
+                _currentSongIndex.value = newList.indexOfFirst { it.id == currentSong.id }
+            }
+            audioService?.refreshNativeQueue()
+        }
+        synchronized(autoAddedMediaIds) { autoAddedMediaIds.clear() }
+    }
+
+    fun addSongsToQueue(songs: List<SongItem>) {
+        val newList = ArrayList(_songList.value)
+        val existingIds = newList.map { it.id }.toSet()
+        val uniqueNewSongs = songs.filter { it.id !in existingIds }
+        if (uniqueNewSongs.isEmpty()) return
+        newList.addAll(uniqueNewSongs)
+        _songList.value = newList
+        _currentSongIndex.value = findSongIndexById(_currentSong.value?.id ?: -1)
+        audioService?.refreshNativeQueue()
+    }
 
     override fun onCleared() {
         super.onCleared()
+        appContext.getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
+            .unregisterOnSharedPreferenceChangeListener(appSettingsPrefListener)
         audioService = null
         _audioServiceState.value = null
     }

@@ -1,56 +1,42 @@
 package com.codetrio.spatialflow.data.lyrics.providers.paxsenix
 
+import android.content.Context
 import android.util.Log
 import com.codetrio.spatialflow.data.lyrics.LyricsResult
-import com.codetrio.spatialflow.data.lyrics.PaxsenixApi
+import com.codetrio.spatialflow.data.lyrics.PaxsenixLyrics
 import com.codetrio.spatialflow.data.lyrics.TrackMetadata
 import com.codetrio.spatialflow.data.lyrics.providers.LyricsProvider
 
-class PaxsenixYoutubeProvider(private val api: PaxsenixApi) : LyricsProvider {
+class PaxsenixYouTubeProvider(private val context: Context) : LyricsProvider {
     companion object {
-        private const val TAG = "PaxsenixYoutube"
+        private const val TAG = "PaxsenixYouTube"
     }
 
-    override fun getName(): String = "YouTube (Paxsenix)"
-
-    override fun getPriority(): Int = 3
+    override fun getName(): String = "Paxsenix: YouTube"
+    override fun getPriority(): Int = 2
 
     override fun search(track: TrackMetadata): LyricsResult? {
-        try {
-            val query = "${track.cleanedTitle} ${track.cleanedArtist}"
-            val searchResponse = api.searchYouTube(query).execute()
-            
-            if (searchResponse.isSuccessful && searchResponse.body() != null) {
-                val searchBody = searchResponse.body()!!
-                if (searchBody.isJsonArray && searchBody.asJsonArray.size() > 0) {
-                    val firstResult = searchBody.asJsonArray.get(0).asJsonObject
-                    val trackId = if (firstResult.has("id")) firstResult.get("id").asString else if (firstResult.has("videoId")) firstResult.get("videoId").asString else null
-                    
-                    if (trackId != null) {
-                        val lyricsResponse = api.getYouTubeLyrics(trackId).execute()
-                        if (lyricsResponse.isSuccessful && lyricsResponse.body() != null) {
-                            val lyricsStr = lyricsResponse.body()!!.string()
-                            if (lyricsStr.isNotBlank() && !lyricsStr.contains("isError\":true")) {
-                                val result = LyricsResult(
-                                    providerName = getName(),
-                                    matchedTitle = track.cleanedTitle,
-                                    matchedArtist = track.cleanedArtist
-                                )
-                                
-                                if (lyricsStr.contains("[00:")) {
-                                    result.setSyncedLyrics(lyricsStr)
-                                } else {
-                                    result.setPlainLyrics(lyricsStr)
-                                }
-                                return result
-                            }
-                        }
-                    }
+        return try {
+            val lyricsStr = PaxsenixLyrics.getYouTubeLyrics(
+                context, track.cleanedTitle, track.cleanedArtist
+            ) ?: return null
+
+            val result = LyricsResult(
+                providerName = getName(),
+                matchedTitle = track.cleanedTitle,
+                matchedArtist = track.cleanedArtist
+            )
+            when {
+                lyricsStr.contains("[00:") || lyricsStr.contains("[01:") -> {
+                    result.setSyncedLyrics(lyricsStr)
+                    if (PaxsenixLyrics.isWordByWord(lyricsStr)) result.setWordByWord(true)
                 }
+                else -> result.setPlainLyrics(lyricsStr)
             }
+            result
         } catch (e: Exception) {
             Log.w(TAG, "Search failed: ${e.message}")
+            null
         }
-        return null
     }
 }

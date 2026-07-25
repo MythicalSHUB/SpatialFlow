@@ -121,6 +121,9 @@ class ConfidenceScorer {
     }
 
     private fun scoreProviderTrust(providerName: String?): Float {
+        if (providerName?.startsWith("BetterLyrics") == true) {
+            return 0.98f
+        }
         return when (providerName) {
             "LRCLIB" -> 0.95f
             "SyncLRC" -> 0.95f

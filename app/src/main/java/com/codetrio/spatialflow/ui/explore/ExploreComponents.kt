@@ -3,12 +3,14 @@
 package com.codetrio.spatialflow.ui.explore
  
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -44,13 +47,15 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.ThumbUpOffAlt
+import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -63,12 +68,13 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,13 +82,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.composed
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -92,10 +103,15 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.toPath
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.codetrio.spatialflow.data.innertube.HomeSection
 import com.codetrio.spatialflow.data.innertube.OnlineAlbum
@@ -103,6 +119,7 @@ import com.codetrio.spatialflow.data.innertube.OnlineArtist
 import com.codetrio.spatialflow.data.innertube.OnlinePlaylist
 import com.codetrio.spatialflow.data.innertube.OnlineSong
 import com.codetrio.spatialflow.data.innertube.SearchItem
+import com.codetrio.spatialflow.data.innertube.resize
 import com.codetrio.spatialflow.model.SongItem
 import com.codetrio.spatialflow.util.FavoritesManager
 import com.codetrio.spatialflow.util.SongDownloader
@@ -110,49 +127,269 @@ import com.codetrio.spatialflow.viewmodel.ExploreViewModel
 import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel
 
 /**
- * Standard UI Shimmer Modifier to render placeholder skeleton states efficiently.
+ * M3 Expressive shape morph clip.
+ *
+ * Normalizes the morphed path's bounding box and maps its center directly to
+ * (size.width / 2, size.height / 2) while scaling to fill the composable container.
+ * This guarantees perfect centering and sizing behind PFPs and in skeleton states.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+class MorphShape(
+    private val morph: Morph,
+    private val progress: Float,
+    private val rotationDegrees: Float = 0f
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val androidPath = morph.toPath(progress = progress).asComposePath().asAndroidPath()
+
+        val bounds = android.graphics.RectF()
+        androidPath.computeBounds(bounds, true)
+
+        val pathWidth = bounds.width()
+        val pathHeight = bounds.height()
+
+        if (pathWidth <= 0f || pathHeight <= 0f) {
+            return Outline.Generic(androidPath.asComposePath())
+        }
+
+        val pathCx = bounds.centerX()
+        val pathCy = bounds.centerY()
+
+        val targetCx = size.width / 2f
+        val targetCy = size.height / 2f
+
+        val containerMin = minOf(size.width, size.height)
+        val maxRadius = kotlin.math.hypot(pathWidth / 2f, pathHeight / 2f)
+
+        // For rotating shapes, scale so the maximum corner radius fills 99% of container bounds (0.99 * containerMin / 2).
+        // This guarantees maximum size while keeping 360° rotation completely inside the composable box with ZERO clipping.
+        val scale = if (rotationDegrees != 0f && maxRadius > 0f) {
+            (containerMin / 2f * 0.99f) / maxRadius
+        } else {
+            containerMin / maxOf(pathWidth, pathHeight)
+        }
+
+        val m = android.graphics.Matrix()
+        // 1. Translate path center to origin (0,0)
+        m.postTranslate(-pathCx, -pathCy)
+        // 2. Scale safely within container bounds
+        m.postScale(scale, scale)
+        // 3. Rotate around origin (which is the path center)
+        if (rotationDegrees != 0f) {
+            m.postRotate(rotationDegrees)
+        }
+        // 4. Translate from origin to container center
+        m.postTranslate(targetCx, targetCy)
+
+        androidPath.transform(m)
+        return Outline.Generic(androidPath.asComposePath())
+    }
+}
+
+data class ExpressiveShapeMorphState(
+    val morphShape: MorphShape,
+    val easedProgress: Float
+)
+
+@Composable
+fun rememberExpressiveShapeMorph(
+    shapes: List<androidx.graphics.shapes.RoundedPolygon> = ExpressiveMaterialShapes,
+    segmentDurationMillis: Int = 1400,
+    rotationDurationMillis: Int = 12000
+): ExpressiveShapeMorphState {
+    val infiniteTransition = rememberInfiniteTransition(label = "expressive_shape_morph")
+    val globalProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = shapes.size.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(segmentDurationMillis * shapes.size, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "globalProgress"
+    )
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(rotationDurationMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+    val currentIndex = globalProgress.toInt() % shapes.size
+    val nextIndex = (currentIndex + 1) % shapes.size
+    val segmentFraction = globalProgress - globalProgress.toInt()
+    val easedProgress = FastOutSlowInEasing.transform(segmentFraction)
+    val morph = remember(currentIndex, nextIndex) {
+        Morph(shapes[currentIndex], shapes[nextIndex])
+    }
+    val morphShape = MorphShape(morph, easedProgress, rotationAngle)
+    return ExpressiveShapeMorphState(morphShape, easedProgress)
+}
+
+
+val ExpressiveMaterialShapes = listOf(
+    MaterialShapes.Arch,
+    MaterialShapes.Arrow,
+    MaterialShapes.Boom,
+    MaterialShapes.Bun,
+    MaterialShapes.Burst,
+    MaterialShapes.Circle,
+    MaterialShapes.ClamShell,
+    MaterialShapes.Clover4Leaf,
+    MaterialShapes.Clover8Leaf,
+    MaterialShapes.Cookie12Sided,
+    MaterialShapes.Cookie4Sided,
+    MaterialShapes.Cookie6Sided,
+    MaterialShapes.Cookie7Sided,
+    MaterialShapes.Cookie9Sided,
+    MaterialShapes.Diamond,
+    MaterialShapes.Fan,
+    MaterialShapes.Flower,
+    MaterialShapes.Gem,
+    MaterialShapes.Ghostish,
+    MaterialShapes.Heart,
+    MaterialShapes.Oval,
+    MaterialShapes.Pentagon,
+    MaterialShapes.Pill,
+    MaterialShapes.PixelCircle,
+    MaterialShapes.PixelTriangle,
+    MaterialShapes.Puffy,
+    MaterialShapes.PuffyDiamond,
+    MaterialShapes.SemiCircle,
+    MaterialShapes.Slanted,
+    MaterialShapes.SoftBoom,
+    MaterialShapes.SoftBurst,
+    MaterialShapes.Square,
+    MaterialShapes.Sunny,
+    MaterialShapes.Triangle,
+    MaterialShapes.VerySunny
+)
+/**
+ * Composition-local shimmer offset that drives a single unified sweep across
+ * every skeleton element in the subtree. Parent skeleton containers provide
+ * this value via [UnifiedShimmerProvider].
+ */
+val LocalShimmerOffset = androidx.compose.runtime.compositionLocalOf { 0f }
+
+/**
+ * Wraps skeleton content and provides a single InfiniteTransition-driven
+ * shimmer offset that all child [ShimmerModifier] elements read, producing
+ * one cohesive diagonal sweep across the entire skeleton layout.
+ */
+@Composable
+fun UnifiedShimmerProvider(content: @Composable () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "unified_shimmer")
+    val shimmerOffset by transition.animateFloat(
+        initialValue = -1200f,
+        targetValue = 2400f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "unified_shimmer_offset"
+    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalShimmerOffset provides shimmerOffset) {
+        content()
+    }
+}
+
+/**
+ * Standard UI Shimmer Modifier to render placeholder skeleton states efficiently.
+ * Reads from [LocalShimmerOffset] so all elements share a single diagonal sweep.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ShimmerModifier(
     width: Dp,
     height: Dp,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp)
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp),
+    useMorphingLoadingShape: Boolean = false
 ) {
+    val finalShape = if (useMorphingLoadingShape) {
+        val shapes = remember {
+            listOf(
+                MaterialShapes.Cookie6Sided,
+                MaterialShapes.SoftBurst,
+                MaterialShapes.PuffyDiamond,
+                MaterialShapes.Square
+            )
+        }
+        val transition = rememberInfiniteTransition(label = "shimmer_morph")
+        val progress by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = shapes.size.toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(shapes.size * 1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "progress"
+        )
+        val currentIndex = progress.toInt() % shapes.size
+        val nextIndex = (currentIndex + 1) % shapes.size
+        val fraction = progress - progress.toInt()
+        val easedFraction = FastOutSlowInEasing.transform(fraction)
+        val morph = remember(currentIndex, nextIndex) { Morph(shapes[currentIndex], shapes[nextIndex]) }
+        MorphShape(morph, easedFraction)
+    } else {
+        shape
+    }
+
+    val globalShimmerOffset = LocalShimmerOffset.current
+    var posInRoot by remember { mutableStateOf(Offset.Zero) }
+    val colorLow = MaterialTheme.colorScheme.surfaceContainerLow
+    val colorHigh = MaterialTheme.colorScheme.surfaceContainerHigh
+
     Box(
         modifier = Modifier
             .size(width = width, height = height)
-            .clip(shape)
-            .shimmerEffect()
+            .clip(finalShape)
+            .onGloballyPositioned { coords ->
+                posInRoot = coords.positionInRoot()
+            }
+            .drawWithContent {
+                drawContent()
+                // Offset the shared sweep band by this element's root position
+                // so the gradient appears to sweep across the entire screen as one.
+                val localOffset = globalShimmerOffset - posInRoot.x - posInRoot.y
+                val brush = Brush.linearGradient(
+                    colors = listOf(colorLow, colorHigh, colorLow),
+                    start = Offset(localOffset, localOffset),
+                    end = Offset(localOffset + 600f, localOffset + 600f)
+                )
+                drawRect(brush = brush)
+            }
     )
 }
 
 fun Modifier.shimmerEffect(): Modifier = composed {
-    var positionInRoot by remember { mutableStateOf(Offset.Zero) }
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val translateAnim by transition.animateFloat(
-        initialValue = -1000f,
-        targetValue = 3000f,
+    var size by remember { mutableStateOf(Size.Zero) }
+    val transition = rememberInfiniteTransition(label = "shimmer_effect")
+    val startOffsetX by transition.animateFloat(
+        initialValue = -2 * size.width,
+        targetValue = 2 * size.width,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
+            animation = tween(1200, easing = LinearEasing)
         ),
-        label = "shimmer_anim"
+        label = "shimmer_offset"
     )
-    val shimmerColors = listOf(
-        MaterialTheme.colorScheme.surfaceContainerLow,
-        MaterialTheme.colorScheme.surfaceContainerHigh,
-        MaterialTheme.colorScheme.surfaceContainerLow
-    )
-
-    this
-        .onGloballyPositioned { positionInRoot = it.positionInRoot() }
-        .background(
-            brush = Brush.linearGradient(
-                colors = shimmerColors,
-                start = Offset(translateAnim - positionInRoot.x, translateAnim - positionInRoot.y),
-                end = Offset(translateAnim - positionInRoot.x + 600f, translateAnim - positionInRoot.y + 600f)
-            )
+    val colorLow = MaterialTheme.colorScheme.surfaceContainerLow
+    val colorHigh = MaterialTheme.colorScheme.surfaceContainerHigh
+    
+    background(
+        brush = Brush.linearGradient(
+            colors = listOf(colorLow, colorHigh, colorLow),
+            start = Offset(startOffsetX, 0f),
+            end = Offset(startOffsetX + size.width, size.height)
         )
+    )
+    .onGloballyPositioned {
+        size = Size(it.size.width.toFloat(), it.size.height.toFloat())
+    }
 }
 
 /**
@@ -192,37 +429,39 @@ fun AnimatedEqualizerBars(
  */
 @Composable
 fun HomeFeedSkeleton() {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(bottom = 120.dp)
-    ) {
-        item {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                ShimmerModifier(width = 160.dp, height = 40.dp, shape = RoundedCornerShape(12.dp))
-                Spacer(modifier = Modifier.height(20.dp))
-                // Chip row shimmer
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    repeat(4) {
-                        ShimmerModifier(width = 72.dp, height = 32.dp, shape = CircleShape)
+    UnifiedShimmerProvider {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(bottom = 120.dp)
+        ) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
+                    ShimmerModifier(width = 160.dp, height = 40.dp, shape = RoundedCornerShape(12.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
+                    // Chip row shimmer
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        repeat(4) {
+                            ShimmerModifier(width = 72.dp, height = 32.dp, shape = CircleShape)
+                        }
                     }
                 }
             }
-        }
-        items(4) {
-            Column(modifier = Modifier.padding(vertical = 10.dp)) {
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    ShimmerModifier(width = 140.dp, height = 26.dp, shape = RoundedCornerShape(8.dp))
-                    ShimmerModifier(width = 64.dp, height = 28.dp, shape = CircleShape)
-                }
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(4) {
-                        Column(horizontalAlignment = Alignment.Start) {
-                            ShimmerModifier(width = 170.dp, height = 170.dp, shape = RoundedCornerShape(8.dp))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            ShimmerModifier(width = 120.dp, height = 16.dp, shape = RoundedCornerShape(6.dp))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            ShimmerModifier(width = 80.dp, height = 12.dp, shape = RoundedCornerShape(6.dp))
+            items(4) {
+                Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        ShimmerModifier(width = 140.dp, height = 26.dp, shape = RoundedCornerShape(8.dp))
+                        ShimmerModifier(width = 64.dp, height = 28.dp, shape = CircleShape)
+                    }
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(4) {
+                            Column(horizontalAlignment = Alignment.Start) {
+                                ShimmerModifier(width = 170.dp, height = 170.dp, useMorphingLoadingShape = true)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                ShimmerModifier(width = 120.dp, height = 16.dp, shape = RoundedCornerShape(6.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                ShimmerModifier(width = 80.dp, height = 12.dp, shape = RoundedCornerShape(6.dp))
+                            }
                         }
                     }
                 }
@@ -277,6 +516,181 @@ fun WelcomeGreetingBanner(userName: String?) {
         )
     }
 }
+// ===== Top Result Hero Card (YouTube Music Style) =====
+
+@Composable
+fun TopResultCard(
+    topResult: SearchItem.TopResult,
+    isCurrentlyPlaying: Boolean,
+    onPlayClick: () -> Unit,
+    onSaveClick: () -> Unit = {},
+    onMoreClick: () -> Unit,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header / Title row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(topResult.thumbnailUrl?.resize(160))
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    loading = {
+                        Box(modifier = Modifier.fillMaxSize().shimmerEffect())
+                    },
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = topResult.title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = topResult.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                IconButton(
+                    onClick = onMoreClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More Options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Action Button (Play for tracks/albums/playlists, Go to Profile for artists)
+            val isArtist = topResult.artist != null ||
+                    topResult.itemType.equals("Artist", ignoreCase = true) ||
+                    topResult.subtitle.contains("Artist", ignoreCase = true)
+
+            Row(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isArtist) {
+                    // Solid White "Go to Profile" Button for Artist results
+                    Button(
+                        onClick = onClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "Go to Profile",
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Go to Profile",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color.Black
+                        )
+                    }
+                } else {
+                    // Solid White "Play" Button for Song / Video / Album / Playlist results
+                    Button(
+                        onClick = onPlayClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = "Play",
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Play",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color.Black
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ===== Search Section Header =====
+
+@Composable
+fun SearchSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = title.uppercase(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+        style = MaterialTheme.typography.labelMedium.copy(
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        ),
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
 // ===== Search Result Item =====
 
 @Composable
@@ -295,6 +709,8 @@ fun SearchResultItem(
     val containerShape = RoundedCornerShape(8.dp)
 
     val thumbnailUrl = when (item) {
+        is SearchItem.TopResult -> item.thumbnailUrl
+        is SearchItem.Header -> null
         is SearchItem.Song -> item.song.thumbnailUrl
         is SearchItem.Album -> item.album.thumbnailUrl
         is SearchItem.Artist -> item.artist.thumbnailUrl
@@ -302,6 +718,8 @@ fun SearchResultItem(
     }
     val isCircle = item is SearchItem.Artist
     val itemId = when (item) {
+        is SearchItem.TopResult -> "top-${item.title}"
+        is SearchItem.Header -> "header-${item.title}"
         is SearchItem.Song -> item.song.videoId
         is SearchItem.Album -> item.album.browseId
         is SearchItem.Artist -> item.artist.browseId
@@ -309,22 +727,19 @@ fun SearchResultItem(
     }
     val imageShape = if (isCircle) CircleShape else RoundedCornerShape(4.dp) // Match YT Music sharp rounded corner
 
+    val itemBadge = when (item) {
+        is SearchItem.Song -> item.badge ?: item.typeText
+        is SearchItem.Album -> item.badge
+        is SearchItem.Playlist -> item.badge
+        else -> null
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp) // Perfect gap between items
             .clip(containerShape)
             .background(backgroundColor)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Press) {
-                            onTouchDown()
-                        }
-                    }
-                }
-            }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = {
@@ -338,9 +753,15 @@ fun SearchResultItem(
     ) {
         // Thumbnail Image
         Box(modifier = Modifier.size(48.dp)) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(thumbnailUrl).crossfade(false).build(),
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(thumbnailUrl?.resize(120))
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
+                loading = {
+                    Box(modifier = Modifier.fillMaxSize().shimmerEffect())
+                },
                 modifier = Modifier.fillMaxSize().clip(imageShape).sharedElementIfAvailable("image-$itemId"),
                 contentScale = ContentScale.Crop
             )
@@ -369,6 +790,8 @@ fun SearchResultItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = when (item) {
+                    is SearchItem.TopResult -> item.title
+                    is SearchItem.Header -> item.title
                     is SearchItem.Song -> item.song.title
                     is SearchItem.Album -> item.album.title
                     is SearchItem.Artist -> item.artist.title
@@ -382,18 +805,44 @@ fun SearchResultItem(
                 color = if (isCurrentlyPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(1.dp))
-            Text(
-                text = when (item) {
-                    is SearchItem.Song -> "${item.song.artist}${item.song.duration?.let { " • $it" } ?: ""}"
-                    is SearchItem.Album -> "Album • ${item.album.artists.joinToString { it.name }}${item.album.year?.let { " • $it" } ?: ""}"
-                    is SearchItem.Artist -> "Artist${item.artist.subscriberCount?.let { " • $it" } ?: ""}"
-                    is SearchItem.Playlist -> "Playlist${item.playlist.songCount?.let { " • $it songs" } ?: ""}"
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!itemBadge.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.padding(end = 6.dp)
+                    ) {
+                        Text(
+                            text = itemBadge.uppercase(),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = when (item) {
+                        is SearchItem.TopResult -> item.subtitle
+                        is SearchItem.Header -> ""
+                        is SearchItem.Song -> "${item.song.artist}${item.song.duration?.let { " • $it" } ?: ""}"
+                        is SearchItem.Album -> "Album • ${item.album.artists.joinToString { it.name }}${item.album.year?.let { " • $it" } ?: ""}"
+                        is SearchItem.Artist -> "Artist${item.artist.subscriberCount?.let { count ->
+                            val clean = count.replace("Spotify", "", ignoreCase = true)
+                                .replace("Monthly Monthly Listeners", "Monthly Listeners", ignoreCase = true)
+                                .trim()
+                            if (clean.isNotEmpty()) " • $clean" else ""
+                        } ?: ""}"
+                        is SearchItem.Playlist -> "Playlist${item.playlist.songCount?.let { " • $it songs" } ?: ""}"
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(8.dp))
@@ -459,18 +908,24 @@ fun BentoCell(
     onClick: () -> Unit
 ) {
     val title = when (item) {
+        is SearchItem.TopResult -> item.title
+        is SearchItem.Header -> item.title
         is SearchItem.Song -> item.song.title
         is SearchItem.Album -> item.album.title
         is SearchItem.Artist -> item.artist.title
         is SearchItem.Playlist -> item.playlist.title
     }
     val subtitle = when (item) {
+        is SearchItem.TopResult -> item.subtitle
+        is SearchItem.Header -> ""
         is SearchItem.Song -> item.song.artist
         is SearchItem.Album -> item.album.artists.joinToString { it.name }
         is SearchItem.Artist -> "Artist"
         is SearchItem.Playlist -> item.playlist.author?.name ?: "Playlist"
     }
     val thumbnailUrl = when (item) {
+        is SearchItem.TopResult -> item.thumbnailUrl
+        is SearchItem.Header -> null
         is SearchItem.Song -> item.song.thumbnailUrl
         is SearchItem.Album -> item.album.thumbnailUrl
         is SearchItem.Artist -> item.artist.thumbnailUrl
@@ -484,9 +939,15 @@ fun BentoCell(
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(thumbnailUrl).crossfade(true).build(),
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(thumbnailUrl?.resize(544))
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
+                loading = {
+                    Box(modifier = Modifier.fillMaxSize().shimmerEffect())
+                },
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
@@ -549,11 +1010,13 @@ fun HomeSectionRow(
     onPlaylistClick: (OnlinePlaylist) -> Unit,
     onSongMenuClick: (OnlineSong) -> Unit,
     onSongTouchDown: (OnlineSong) -> Unit = {},
-    onSectionClick: (browseId: String, params: String?, title: String) -> Unit = { _, _, _ -> }
+    onSectionClick: (browseId: String, params: String?, title: String) -> Unit = { _, _, _ -> },
+    onRadioClick: (SearchItem) -> Unit = {},
+    onSaveClick: (SearchItem) -> Unit = {}
 ) {
     val hasSongsOnly = section.items.isNotEmpty() && section.items.all { it is SearchItem.Song }
 
-    Column(modifier = Modifier.padding(vertical = 4.dp).animateContentSize()) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
         // Universal Section Header
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
@@ -564,7 +1027,10 @@ fun HomeSectionRow(
                 text = section.title,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (hasSongsOnly || section.title.contains("daily discover", ignoreCase = true)) {
@@ -621,6 +1087,7 @@ fun HomeSectionRow(
                                     is SearchItem.Album -> onAlbumClick(it.album)
                                     is SearchItem.Artist -> onArtistClick(it.artist)
                                     is SearchItem.Playlist -> onPlaylistClick(it.playlist)
+                                    is SearchItem.TopResult, is SearchItem.Header -> {}
                                 }
                             }
                         )
@@ -632,6 +1099,7 @@ fun HomeSectionRow(
                                     is SearchItem.Album -> onAlbumClick(it.album)
                                     is SearchItem.Artist -> onArtistClick(it.artist)
                                     is SearchItem.Playlist -> onPlaylistClick(it.playlist)
+                                    is SearchItem.TopResult, is SearchItem.Header -> {}
                                 }
                             })
                             BentoCell(item = items[2], modifier = Modifier.weight(1f).fillMaxWidth(), onClick = {
@@ -640,6 +1108,7 @@ fun HomeSectionRow(
                                     is SearchItem.Album -> onAlbumClick(it.album)
                                     is SearchItem.Artist -> onArtistClick(it.artist)
                                     is SearchItem.Playlist -> onPlaylistClick(it.playlist)
+                                    is SearchItem.TopResult, is SearchItem.Header -> {}
                                 }
                             })
                         }
@@ -652,6 +1121,7 @@ fun HomeSectionRow(
                                 is SearchItem.Album -> onAlbumClick(it.album)
                                 is SearchItem.Artist -> onArtistClick(it.artist)
                                 is SearchItem.Playlist -> onPlaylistClick(it.playlist)
+                                is SearchItem.TopResult, is SearchItem.Header -> {}
                             }
                         })
                         BentoCell(item = items[4], modifier = Modifier.weight(1f).fillMaxHeight(), onClick = {
@@ -660,6 +1130,7 @@ fun HomeSectionRow(
                                 is SearchItem.Album -> onAlbumClick(it.album)
                                 is SearchItem.Artist -> onArtistClick(it.artist)
                                 is SearchItem.Playlist -> onPlaylistClick(it.playlist)
+                                is SearchItem.TopResult, is SearchItem.Header -> {}
                             }
                         })
                     }
@@ -677,12 +1148,16 @@ fun HomeSectionRow(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             rowItems.forEach { item ->
                                 val title = when (item) {
+                                    is SearchItem.TopResult -> item.title
+                                    is SearchItem.Header -> item.title
                                     is SearchItem.Song -> item.song.title
                                     is SearchItem.Album -> item.album.title
                                     is SearchItem.Artist -> item.artist.title
                                     is SearchItem.Playlist -> item.playlist.title
                                 }
                                 val thumbnailUrl = when (item) {
+                                    is SearchItem.TopResult -> item.thumbnailUrl
+                                    is SearchItem.Header -> null
                                     is SearchItem.Song -> item.song.thumbnailUrl
                                     is SearchItem.Album -> item.album.thumbnailUrl
                                     is SearchItem.Artist -> item.artist.thumbnailUrl
@@ -697,11 +1172,12 @@ fun HomeSectionRow(
                                                 is SearchItem.Album -> onAlbumClick(item.album)
                                                 is SearchItem.Artist -> onArtistClick(item.artist)
                                                 is SearchItem.Playlist -> onPlaylistClick(item.playlist)
+                                                is SearchItem.TopResult, is SearchItem.Header -> {}
                                             }
                                         }
                                 ) {
                                     AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current).data(thumbnailUrl).crossfade(true).build(),
+                                        model = thumbnailUrl?.resize(240),
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop
@@ -735,7 +1211,7 @@ fun HomeSectionRow(
                 }
             }
 
-            // 2. YOUR DAILY DISCOVER â€” Large Immersive Cards
+            // 2. YOUR DAILY DISCOVER — Large Immersive Cards
             section.title.contains("daily discover", ignoreCase = true) -> {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -749,23 +1225,33 @@ fun HomeSectionRow(
                                 is SearchItem.Album -> "discover-album-${item.album.browseId}"
                                 is SearchItem.Artist -> "discover-artist-${item.artist.browseId}"
                                 is SearchItem.Playlist -> "discover-playlist-${item.playlist.playlistId}"
+                                is SearchItem.TopResult -> "discover-top-${item.title}"
+                                is SearchItem.Header -> "discover-header-${item.title}"
                             }
                             "$index-$baseKey"
                         }
                     ) { _, item ->
                         val title = when (item) {
+                            is SearchItem.TopResult -> item.title
+                            is SearchItem.Header -> item.title
                             is SearchItem.Song -> item.song.title
                             is SearchItem.Album -> item.album.title
                             is SearchItem.Artist -> item.artist.title
                             is SearchItem.Playlist -> item.playlist.title
                         }
                         val subtitle = when (item) {
+                            is SearchItem.TopResult -> item.subtitle
+                            is SearchItem.Header -> ""
                             is SearchItem.Song -> item.song.artist
                             is SearchItem.Album -> item.album.artists.joinToString { it.name }
-                            is SearchItem.Artist -> item.artist.subscriberCount ?: "Artist"
+                            is SearchItem.Artist -> item.artist.subscriberCount?.replace("Spotify", "", ignoreCase = true)
+                                ?.replace("Monthly Monthly Listeners", "Monthly Listeners", ignoreCase = true)
+                                ?.trim() ?: "Artist"
                             is SearchItem.Playlist -> item.playlist.author?.name ?: "Playlist"
                         }
                         val thumbnailUrl = when (item) {
+                            is SearchItem.TopResult -> item.thumbnailUrl
+                            is SearchItem.Header -> null
                             is SearchItem.Song -> item.song.thumbnailUrl
                             is SearchItem.Album -> item.album.thumbnailUrl
                             is SearchItem.Artist -> item.artist.thumbnailUrl
@@ -785,11 +1271,12 @@ fun HomeSectionRow(
                                         is SearchItem.Album -> onAlbumClick(item.album)
                                         is SearchItem.Artist -> onArtistClick(item.artist)
                                         is SearchItem.Playlist -> onPlaylistClick(item.playlist)
+                                        is SearchItem.TopResult, is SearchItem.Header -> {}
                                     }
                                 }
                         ) {
                             AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current).data(thumbnailUrl).crossfade(true).build(),
+                                model = thumbnailUrl?.resize(240),
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
@@ -838,7 +1325,7 @@ fun HomeSectionRow(
                 }
             }
 
-            // 3. FROM THE COMMUNITY â€” Nested Card with Song Preview
+            // 3. FROM THE COMMUNITY — Expressive Playlist Card
             section.title.contains("community", ignoreCase = true) -> {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -852,96 +1339,26 @@ fun HomeSectionRow(
                                 is SearchItem.Album -> "community-album-${item.album.browseId}"
                                 is SearchItem.Artist -> "community-artist-${item.artist.browseId}"
                                 is SearchItem.Playlist -> "community-playlist-${item.playlist.playlistId}"
+                                is SearchItem.TopResult -> "community-top-${item.title}"
+                                is SearchItem.Header -> "community-header-${item.title}"
                             }
                             "$index-$baseKey"
                         }
                     ) { _, item ->
-                        val title = when (item) {
-                            is SearchItem.Song -> item.song.title
-                            is SearchItem.Album -> item.album.title
-                            is SearchItem.Artist -> item.artist.title
-                            is SearchItem.Playlist -> item.playlist.title
-                        }
-                        val author = when (item) {
-                            is SearchItem.Song -> item.song.artist
-                            is SearchItem.Album -> item.album.artists.firstOrNull()?.name ?: ""
-                            is SearchItem.Artist -> "Artist"
-                            is SearchItem.Playlist -> item.playlist.author?.name ?: "Community Curator"
-                        }
-                        val songCount = when (item) {
-                            is SearchItem.Playlist -> item.playlist.songCount?.let { "$it songs" } ?: ""
-                            is SearchItem.Album -> item.album.let { "" }
-                            else -> ""
-                        }
-                        val thumbnailUrl = when (item) {
-                            is SearchItem.Song -> item.song.thumbnailUrl
-                            is SearchItem.Album -> item.album.thumbnailUrl
-                            is SearchItem.Artist -> item.artist.thumbnailUrl
-                            is SearchItem.Playlist -> item.playlist.thumbnailUrl
-                        }
-
-                        Card(
-                            modifier = Modifier.width(320.dp).padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current).data(thumbnailUrl).crossfade(true).build(),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(title, style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                            color = MaterialTheme.colorScheme.onSurface)
-                                        Text(author, style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (songCount.isNotBlank()) {
-                                            Text(songCount, style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Start,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            when (item) {
-                                                is SearchItem.Song -> onSongClick(item.song)
-                                                is SearchItem.Playlist -> onPlaylistClick(item.playlist)
-                                                else -> {}
-                                            }
-                                        },
-                                        modifier = Modifier.size(54.dp)
-                                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.PlayArrow, 
-                                            contentDescription = "Play",
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        CommunityExpressiveCard(
+                            item = item,
+                            onSongClick = onSongClick,
+                            onPlaylistClick = onPlaylistClick,
+                            onAlbumClick = onAlbumClick,
+                            onArtistClick = onArtistClick,
+                            onRadioClick = onRadioClick,
+                            onSaveClick = onSaveClick
+                        )
                     }
                 }
             }
 
-            // 4. GENERAL FALLBACK â€” Song List or Carousel
+            // 4. GENERAL FALLBACK — Song List or Carousel
             else -> {
                 if (hasSongsOnly) {
                     val songItems = section.items.filterIsInstance<SearchItem.Song>()
@@ -977,6 +1394,8 @@ fun HomeSectionRow(
                                     is SearchItem.Album -> "carousel-album-${item.album.browseId}-${section.title}"
                                     is SearchItem.Artist -> "carousel-artist-${item.artist.browseId}-${section.title}"
                                     is SearchItem.Playlist -> "carousel-playlist-${item.playlist.playlistId}-${section.title}"
+                                    is SearchItem.TopResult -> "carousel-top-${item.title}-${section.title}"
+                                    is SearchItem.Header -> "carousel-header-${item.title}-${section.title}"
                                 }
                                 "$index-$baseKey"
                             }
@@ -996,6 +1415,7 @@ fun HomeSectionRow(
                                         is SearchItem.Album -> onAlbumClick(item.album)
                                         is SearchItem.Artist -> onArtistClick(item.artist)
                                         is SearchItem.Playlist -> onPlaylistClick(item.playlist)
+                                        is SearchItem.TopResult, is SearchItem.Header -> {}
                                     }
                                 }
                             )
@@ -1020,42 +1440,42 @@ fun HomeCarouselItem(
     val isCircle = item is SearchItem.Artist
     val imageShape = if (isCircle) CircleShape else RoundedCornerShape(8.dp)
     val itemId = when (item) {
+        is SearchItem.TopResult -> "top-${item.title}"
+        is SearchItem.Header -> "header-${item.title}"
         is SearchItem.Song -> item.song.videoId
         is SearchItem.Album -> item.album.browseId
         is SearchItem.Artist -> item.artist.browseId
         is SearchItem.Playlist -> item.playlist.playlistId
     }
     val thumbnailUrl = when (item) {
+        is SearchItem.TopResult -> item.thumbnailUrl
+        is SearchItem.Header -> null
         is SearchItem.Song -> item.song.thumbnailUrl
         is SearchItem.Album -> item.album.thumbnailUrl
         is SearchItem.Artist -> item.artist.thumbnailUrl
         is SearchItem.Playlist -> item.playlist.thumbnailUrl
     }
     val title = when (item) {
+        is SearchItem.TopResult -> item.title
+        is SearchItem.Header -> item.title
         is SearchItem.Song -> item.song.title
         is SearchItem.Album -> item.album.title
         is SearchItem.Artist -> item.artist.title
         is SearchItem.Playlist -> item.playlist.title
     }
     val subtitle = when (item) {
+        is SearchItem.TopResult -> item.subtitle
+        is SearchItem.Header -> ""
         is SearchItem.Song -> item.song.artist
         is SearchItem.Album -> item.album.artists.joinToString { it.name }
-        is SearchItem.Artist -> item.artist.subscriberCount ?: ""
+        is SearchItem.Artist -> item.artist.subscriberCount?.replace("Spotify", "", ignoreCase = true)
+            ?.replace("Monthly Monthly Listeners", "Monthly Listeners", ignoreCase = true)
+            ?.trim() ?: ""
         is SearchItem.Playlist -> item.playlist.author?.name ?: ""
     }
 
     Column(
         modifier = modifier
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Press) {
-                            onTouchDown()
-                        }
-                    }
-                }
-            }
             .clickable(onClick = onClick),
         horizontalAlignment = Alignment.Start
     ) {
@@ -1071,7 +1491,7 @@ fun HomeCarouselItem(
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current).data(thumbnailUrl).crossfade(false).build(),
+                        model = thumbnailUrl?.resize(240),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -1127,16 +1547,6 @@ fun HomeSongListItem(
     Row(
         modifier = Modifier.fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Press) {
-                            onTouchDown()
-                        }
-                    }
-                }
-            }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onMenuClick
@@ -1146,7 +1556,7 @@ fun HomeSongListItem(
     ) {
         Box(modifier = Modifier.size(56.dp)) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(song.thumbnailUrl).crossfade(false).build(),
+                model = song.thumbnailUrl?.resize(120),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)),
                 contentScale = ContentScale.Crop
@@ -1400,7 +1810,7 @@ fun OnlineSongBottomSheet(
             // Optimized 2-Pane Actions for Landscape Width
             val menuItems = listOf(
                 Triple("Start mix", Icons.Default.Radio) {
-                    exploreViewModel.playOnlineSongWithQueue(song, listOf(song), 0)
+                    exploreViewModel.playOnlineSongWithQueue(song, emptyList(), 0)
                     com.codetrio.spatialflow.ui.SnackbarController.showMessage("Starting mix based on ${song.title}")
                     onDismissRequest()
                 },
@@ -1495,3 +1905,222 @@ fun OnlineSongBottomSheet(
     }
 }
 
+// ===== Expressive Community Card =====
+
+@Composable
+fun CommunityExpressiveCard(
+    item: SearchItem,
+    onSongClick: (OnlineSong) -> Unit,
+    onPlaylistClick: (OnlinePlaylist) -> Unit,
+    onAlbumClick: (OnlineAlbum) -> Unit,
+    onArtistClick: (OnlineArtist) -> Unit,
+    onRadioClick: (SearchItem) -> Unit = {},
+    onSaveClick: (SearchItem) -> Unit = {}
+) {
+    val title = when (item) {
+        is SearchItem.TopResult -> item.title
+        is SearchItem.Header -> item.title
+        is SearchItem.Song -> item.song.title
+        is SearchItem.Album -> item.album.title
+        is SearchItem.Artist -> item.artist.title
+        is SearchItem.Playlist -> item.playlist.title
+    }
+    val author = when (item) {
+        is SearchItem.TopResult -> item.subtitle
+        is SearchItem.Header -> ""
+        is SearchItem.Song -> item.song.artist
+        is SearchItem.Album -> item.album.artists.firstOrNull()?.name ?: ""
+        is SearchItem.Artist -> "Artist"
+        is SearchItem.Playlist -> item.playlist.author?.name ?: "Community Curator"
+    }
+    val songCount = when (item) {
+        is SearchItem.Playlist -> item.playlist.songCount?.let { "$it" } ?: ""
+        else -> ""
+    }
+    val thumbnailUrl = when (item) {
+        is SearchItem.TopResult -> item.thumbnailUrl
+        is SearchItem.Header -> null
+        is SearchItem.Song -> item.song.thumbnailUrl
+        is SearchItem.Album -> item.album.thumbnailUrl
+        is SearchItem.Artist -> item.artist.thumbnailUrl
+        is SearchItem.Playlist -> item.playlist.thumbnailUrl
+    }
+    val id = when (item) {
+        is SearchItem.TopResult -> "top-${item.title}"
+        is SearchItem.Header -> "header-${item.title}"
+        is SearchItem.Song -> item.song.videoId
+        is SearchItem.Album -> item.album.browseId
+        is SearchItem.Artist -> item.artist.browseId
+        is SearchItem.Playlist -> item.playlist.playlistId
+    }
+
+    val context = LocalContext.current
+    var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val colors = remember(bitmap) { 
+        if (bitmap != null) {
+            com.codetrio.spatialflow.ui.player.PlayerColorExtractor.extractFromBitmap(id, bitmap) 
+        } else {
+            com.codetrio.spatialflow.ui.player.ExtractedPaletteColors.Default
+        }
+    }
+    
+    val fallbackBottomColor = MaterialTheme.colorScheme.surfaceContainerLowest
+
+    Card(
+        modifier = Modifier
+            .width(320.dp)
+            .wrapContentHeight()
+            .padding(vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            colors.darkMuted.copy(alpha = 0.9f),
+                            fallbackBottomColor
+                        )
+                    )
+                )
+                .clickable {
+                    when (item) {
+                        is SearchItem.Song -> onSongClick(item.song)
+                        is SearchItem.Album -> onAlbumClick(item.album)
+                        is SearchItem.Artist -> onArtistClick(item.artist)
+                        is SearchItem.Playlist -> onPlaylistClick(item.playlist)
+                        is SearchItem.TopResult, is SearchItem.Header -> {}
+                    }
+                }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Top section: Thumbnail + Title
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Image with state listener
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(thumbnailUrl?.resize(240))
+                            .crossfade(true)
+                            .allowHardware(false) // Needed for palette extraction
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(84.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.1f)),
+                        contentScale = ContentScale.Crop,
+                        onSuccess = { state ->
+                            val drawable = state.result.drawable
+                            if (drawable is android.graphics.drawable.BitmapDrawable) {
+                                bitmap = drawable.bitmap
+                            }
+                        }
+                    )
+                    
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = author,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (songCount.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = songCount,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                }
+                
+                // Bottom action bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        IconButton(
+                            onClick = { onRadioClick(item) },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                        ) {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = com.codetrio.spatialflow.R.drawable.ic_radio),
+                                contentDescription = "Radio",
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { onSaveClick(item) },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(Color.White.copy(alpha = 0.08f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.BookmarkBorder, 
+                                contentDescription = "Save",
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = {
+                            when (item) {
+                                is SearchItem.Song -> onSongClick(item.song)
+                                is SearchItem.Playlist -> onPlaylistClick(item.playlist)
+                                is SearchItem.Album -> onAlbumClick(item.album)
+                                is SearchItem.Artist -> onArtistClick(item.artist)
+                                is SearchItem.Header, is SearchItem.TopResult -> {}
+                            }
+                        },
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(colors.vibrant, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow, 
+                            contentDescription = "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

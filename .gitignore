@@ -19,3 +19,7 @@ spatialflow.jks.b64
 /app/release/
 build_log.txt
 build_errors*.txt
+.agent/
+.idea/
+
+

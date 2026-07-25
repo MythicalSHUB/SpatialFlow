@@ -6,22 +6,26 @@ import android.os.Looper
 import android.util.Log
 import com.codetrio.spatialflow.data.lyrics.ConfidenceScorer
 import com.codetrio.spatialflow.data.lyrics.LrcLibApi
+import com.codetrio.spatialflow.data.lyrics.KugouApi
+import com.codetrio.spatialflow.data.lyrics.BetterLyricsApi
+import com.codetrio.spatialflow.data.lyrics.SimpMusicApi
 import com.codetrio.spatialflow.data.lyrics.LyricsNormalizer
 import com.codetrio.spatialflow.data.lyrics.LyricsResult
 import com.codetrio.spatialflow.data.lyrics.MetadataRepair
 import com.codetrio.spatialflow.data.lyrics.TrackMetadata
 import com.codetrio.spatialflow.data.lyrics.providers.EmbeddedLyricsProvider
 import com.codetrio.spatialflow.data.lyrics.providers.LrcLibProvider
+import com.codetrio.spatialflow.data.lyrics.providers.KugouProvider
+import com.codetrio.spatialflow.data.lyrics.providers.BetterLyricsProvider
+import com.codetrio.spatialflow.data.lyrics.providers.SimpMusicProvider
 import com.codetrio.spatialflow.data.lyrics.providers.LyricsProvider
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.ArrayList
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.*
 
 /**
  * Top-level orchestrator for the lyrics fetch pipeline.
@@ -31,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class LyricsFetchManager private constructor(context: Context) {
 
+    private val appContext: Context = context.applicationContext
     private val metadataRepair: MetadataRepair = MetadataRepair()
     private val normalizer: LyricsNormalizer = LyricsNormalizer()
     private val decisionEngine: LyricsDecisionEngine
@@ -38,12 +43,15 @@ class LyricsFetchManager private constructor(context: Context) {
     private val providerStats: ProviderStats = ProviderStats(context)
     private val telemetry: LyricsTelemetry = LyricsTelemetry()
     private val router: ProviderRouter
-    private val backgroundExecutor: ExecutorService
+    private val bgScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var betterLyricsApi: BetterLyricsApi? = null
 
     // Track current search to allow cancellation
     @Volatile
-    private var currentFetch: Future<*>? = null
+    private var currentFetch: Job? = null
 
     @Volatile
     private var currentTrackKey: String? = null
@@ -76,11 +84,6 @@ class LyricsFetchManager private constructor(context: Context) {
     init {
         val scorer = ConfidenceScorer()
         this.decisionEngine = LyricsDecisionEngine(scorer)
-        this.backgroundExecutor = Executors.newSingleThreadExecutor { r ->
-            val t = Thread(r, "LyricsFetchManager")
-            t.isDaemon = true
-            t
-        }
 
         // Build providers
         val client = buildHttpClient()
@@ -128,9 +131,8 @@ class LyricsFetchManager private constructor(context: Context) {
         cancelCurrent()
         cancelled.set(false)
 
-        // Launch pipeline on background thread to prevent UI freeze during cache I/O
-        currentFetch = backgroundExecutor.submit {
-            if (cancelled.get()) return@submit
+        currentFetch = bgScope.launch {
+            if (cancelled.get()) return@launch
 
             // Repair metadata
             val track = metadataRepair.repair(title, artist, album, durationMs, filePath, videoId)
@@ -138,7 +140,69 @@ class LyricsFetchManager private constructor(context: Context) {
 
             telemetry.logSearchStart(track)
 
-            // Check cache first (fully safe on background thread)
+            // 1. Check LyricsHelper.singleLyricsCache first (finalized text cache)
+            val cachedSingleText = LyricsHelper.getSingle(track.cleanedTitle, track.cleanedArtist)
+            if (cachedSingleText != null) {
+                val isSynced = cachedSingleText.contains("[") || cachedSingleText.contains("<tt") || cachedSingleText.contains("<p begin=") || cachedSingleText.contains("ttm:begin")
+                val isWordByWord = (cachedSingleText.contains("<tt") || cachedSingleText.contains("<p begin=") || cachedSingleText.contains("ttm:begin")) ||
+                        (cachedSingleText.contains("<") && cachedSingleText.contains(">") && cachedSingleText.contains("["))
+                val cachedResult = LyricsResult(
+                    providerName = "Local Cache",
+                    plainLyrics = if (!isSynced) cachedSingleText else null,
+                    syncedLyrics = if (isSynced) cachedSingleText else null,
+                    confidence = 1.0f,
+                    isSynced = isSynced,
+                    isWordByWord = isWordByWord
+                )
+                telemetry.logCacheStatus("SINGLE_TEXT_HIT", "length=${cachedSingleText.length}")
+                telemetry.logResult(cachedResult, "CACHE_HIT")
+                
+                withContext(Dispatchers.Main) {
+                    callback.onProviderResult("Local Cache", cachedResult)
+                    callback.onLyricsFound(cachedResult)
+                }
+                
+                // If it's not the best possible (word-by-word), we should background search and upgrade!
+                if (!isSynced || !isWordByWord) {
+                    launchBackgroundUpgrade(track, cachedResult, callback)
+                } else {
+                    // Search all providers in background to populate selector list
+                    val resultsList = mutableListOf<LyricsResult>()
+                    router.searchAll(track, track.detectedLanguage, cancelOnEarlyWin = false) { provider, res ->
+                        if (res != null) {
+                            synchronized(resultsList) {
+                                resultsList.add(res)
+                            }
+                        }
+                        bgScope.launch(Dispatchers.Main) { callback.onProviderResult(provider, res) }
+                    }
+                    if (resultsList.isNotEmpty()) {
+                        LyricsHelper.put(track.getCacheKey(), resultsList)
+                    }
+                }
+                
+                return@launch
+            }
+
+            // 2. Check LyricsHelper.cache (List<LyricsResult>) second
+            val cachedList = LyricsHelper.get(track.getCacheKey())
+            if (cachedList != null && cachedList.isNotEmpty()) {
+                telemetry.logCacheStatus("HELPER_LIST_HIT", "size=${cachedList.size}")
+                withContext(Dispatchers.Main) {
+                    cachedList.forEach { res ->
+                        callback.onProviderResult(res.providerName.orEmpty(), res)
+                    }
+                }
+                val best = cachedList.maxByOrNull { it.confidence }
+                if (best != null && best.hasLyrics()) {
+                    withContext(Dispatchers.Main) {
+                        callback.onLyricsFound(best)
+                    }
+                    return@launch
+                }
+            }
+
+            // Check standard file/database cache
             val cached = cacheManager.get(track)
             if (cached != null) {
                 val decision = decisionEngine.decideFetch(cached, false)
@@ -147,26 +211,48 @@ class LyricsFetchManager private constructor(context: Context) {
                     LyricsDecisionEngine.FetchDecision.USE_CACHE -> {
                         telemetry.logCacheStatus("HIT", "confidence=${cached.confidence}")
                         telemetry.logResult(cached, "CACHE_HIT")
-                        mainHandler.post {
+                        
+                        val text = cached.syncedLyrics ?: cached.plainLyrics
+                        if (!text.isNullOrBlank()) {
+                            LyricsHelper.putSingle(track.cleanedTitle, track.cleanedArtist, text)
+                        }
+
+                        withContext(Dispatchers.Main) {
                             callback.onProviderResult(cached.providerName.orEmpty(), cached)
                             callback.onLyricsFound(cached)
                         }
-                        // Search all providers to populate the selector list in the UI
+                        
+                        // Search all providers in background to populate the selector list in the UI
+                        val resultsList = mutableListOf<LyricsResult>()
                         router.searchAll(track, track.detectedLanguage, cancelOnEarlyWin = false) { provider, res ->
-                            mainHandler.post { callback.onProviderResult(provider, res) }
+                            if (res != null) {
+                                synchronized(resultsList) {
+                                    resultsList.add(res)
+                                }
+                            }
+                            bgScope.launch(Dispatchers.Main) { callback.onProviderResult(provider, res) }
                         }
-                        return@submit
+                        if (resultsList.isNotEmpty()) {
+                            LyricsHelper.put(track.getCacheKey(), resultsList)
+                        }
+                        return@launch
                     }
 
                     LyricsDecisionEngine.FetchDecision.USE_CACHE_AND_SEARCH_BACKGROUND -> {
                         telemetry.logCacheStatus("HIT_UNSYNCED", "showing cached, searching for synced")
-                        mainHandler.post {
+                        
+                        val text = cached.syncedLyrics ?: cached.plainLyrics
+                        if (!text.isNullOrBlank()) {
+                            LyricsHelper.putSingle(track.cleanedTitle, track.cleanedArtist, text)
+                        }
+
+                        withContext(Dispatchers.Main) {
                             callback.onProviderResult(cached.providerName.orEmpty(), cached)
                             callback.onLyricsFound(cached)
                         }
                         // Continue to background search for synced upgrade
                         launchBackgroundUpgrade(track, cached, callback)
-                        return@submit
+                        return@launch
                     }
 
                     else -> {
@@ -175,40 +261,65 @@ class LyricsFetchManager private constructor(context: Context) {
                 }
             }
 
-            // Check negative cache
+            // If negative cache was set previously, clear it on fetch to allow auto-search across all providers
             if (cacheManager.isNegativeCacheActive(track)) {
-                telemetry.logCacheStatus("NEGATIVE_ACTIVE", "skipping search")
-                telemetry.logFailure("Negative cache active")
-                mainHandler.post { callback.onLyricsNotFound("Recently searched, no lyrics available") }
-                return@submit
+                telemetry.logCacheStatus("NEGATIVE_BYPASS", "Bypassing negative cache to search all providers")
             }
 
             telemetry.logCacheStatus("MISS", null)
 
-            if (cancelled.get()) return@submit
+            if (cancelled.get()) return@launch
 
-            mainHandler.post { callback.onSearchStatus("Searching multiple sources…") }
-
-            // Search all providers
-            val result = router.searchAll(track, track.detectedLanguage, cancelOnEarlyWin = false) { provider, res ->
-                mainHandler.post { callback.onProviderResult(provider, res) }
+            withContext(Dispatchers.Main) {
+                callback.onSearchStatus("Searching multiple sources…")
             }
 
-            if (cancelled.get()) return@submit
+            val resultsList = mutableListOf<LyricsResult>()
+            // Search all providers using the concurrent select engine
+            val result = router.searchAll(track, track.detectedLanguage, cancelOnEarlyWin = false) { provider, res ->
+                if (res != null) {
+                    synchronized(resultsList) {
+                        resultsList.add(res)
+                    }
+                }
+                bgScope.launch(Dispatchers.Main) { callback.onProviderResult(provider, res) }
+            }
+
+            if (resultsList.isNotEmpty()) {
+                LyricsHelper.put(track.getCacheKey(), resultsList)
+            }
+
+            if (cancelled.get()) return@launch
 
             if (result != null && result.hasLyrics()) {
                 // Decision engine evaluates the result
                 when (val decision = decisionEngine.decide(result, null)) {
                     LyricsDecisionEngine.Decision.ACCEPT -> {
                         cacheManager.put(track, result)
+                        
+                        val text = result.syncedLyrics ?: result.plainLyrics
+                        if (!text.isNullOrBlank()) {
+                            LyricsHelper.putSingle(track.cleanedTitle, track.cleanedArtist, text)
+                        }
+
                         telemetry.logResult(result, "ACCEPTED")
-                        mainHandler.post { callback.onLyricsFound(result) }
+                        withContext(Dispatchers.Main) {
+                            callback.onLyricsFound(result)
+                        }
                     }
 
                     LyricsDecisionEngine.Decision.SHOW_AND_CONTINUE -> {
                         cacheManager.put(track, result)
+                        
+                        val text = result.syncedLyrics ?: result.plainLyrics
+                        if (!text.isNullOrBlank()) {
+                            LyricsHelper.putSingle(track.cleanedTitle, track.cleanedArtist, text)
+                        }
+
                         telemetry.logResult(result, "SHOW_AND_CONTINUE")
-                        mainHandler.post { callback.onLyricsFound(result) }
+                        withContext(Dispatchers.Main) {
+                            callback.onLyricsFound(result)
+                        }
 
                         // Continue searching for better result in background
                         if (!result.isSynced) {
@@ -219,7 +330,9 @@ class LyricsFetchManager private constructor(context: Context) {
                     LyricsDecisionEngine.Decision.MARK_INSTRUMENTAL -> {
                         cacheManager.putNegative(track)
                         telemetry.logResult(result, "INSTRUMENTAL")
-                        mainHandler.post { callback.onInstrumental() }
+                        withContext(Dispatchers.Main) {
+                            callback.onInstrumental()
+                        }
                     }
 
                     LyricsDecisionEngine.Decision.REJECT -> {
@@ -227,19 +340,31 @@ class LyricsFetchManager private constructor(context: Context) {
                         val deepResult = deepSearch(track)
                         if (deepResult != null && !cancelled.get()) {
                             cacheManager.put(track, deepResult)
+                            
+                            val text = deepResult.syncedLyrics ?: deepResult.plainLyrics
+                            if (!text.isNullOrBlank()) {
+                                LyricsHelper.putSingle(track.cleanedTitle, track.cleanedArtist, text)
+                            }
+
                             telemetry.logResult(deepResult, "DEEP_SEARCH_ACCEPT")
-                            mainHandler.post { callback.onLyricsFound(deepResult) }
+                            withContext(Dispatchers.Main) {
+                                callback.onLyricsFound(deepResult)
+                            }
                         } else if (!cancelled.get()) {
                             cacheManager.putNegative(track)
                             telemetry.logFailure("All providers returned low confidence results")
-                            mainHandler.post { callback.onLyricsNotFound("No matching lyrics found") }
+                            withContext(Dispatchers.Main) {
+                                callback.onLyricsNotFound("No matching lyrics found")
+                            }
                         }
                     }
 
                     else -> {
                         cacheManager.putNegative(track)
                         telemetry.logFailure("Decision: $decision")
-                        mainHandler.post { callback.onLyricsNotFound("No lyrics available") }
+                        withContext(Dispatchers.Main) {
+                            callback.onLyricsNotFound("No lyrics available")
+                        }
                     }
                 }
             } else if (!cancelled.get()) {
@@ -247,12 +372,22 @@ class LyricsFetchManager private constructor(context: Context) {
                 val deepResult = deepSearch(track)
                 if (deepResult != null && !cancelled.get()) {
                     cacheManager.put(track, deepResult)
+                    
+                    val text = deepResult.syncedLyrics ?: deepResult.plainLyrics
+                    if (!text.isNullOrBlank()) {
+                        LyricsHelper.putSingle(track.cleanedTitle, track.cleanedArtist, text)
+                    }
+
                     telemetry.logResult(deepResult, "DEEP_SEARCH_ACCEPT")
-                    mainHandler.post { callback.onLyricsFound(deepResult) }
+                    withContext(Dispatchers.Main) {
+                        callback.onLyricsFound(deepResult)
+                    }
                 } else if (!cancelled.get()) {
                     cacheManager.putNegative(track)
                     telemetry.logFailure("No results from any provider")
-                    mainHandler.post { callback.onLyricsNotFound("No lyrics available") }
+                    withContext(Dispatchers.Main) {
+                        callback.onLyricsNotFound("No lyrics available")
+                    }
                 }
             }
         }
@@ -285,8 +420,8 @@ class LyricsFetchManager private constructor(context: Context) {
     fun cancelCurrent() {
         cancelled.set(true)
         currentFetch?.let {
-            if (!it.isDone) {
-                it.cancel(true)
+            if (it.isActive) {
+                it.cancel()
                 Log.d(TAG, "Cancelled current fetch")
             }
         }
@@ -295,7 +430,7 @@ class LyricsFetchManager private constructor(context: Context) {
     /**
      * Deep search: retry with alternate query formulations.
      */
-    private fun deepSearch(track: TrackMetadata): LyricsResult? {
+    private suspend fun deepSearch(track: TrackMetadata): LyricsResult? {
         if (cancelled.get()) return null
 
         val queries = normalizer.generateQueries(track)
@@ -337,17 +472,27 @@ class LyricsFetchManager private constructor(context: Context) {
         current: LyricsResult,
         callback: LyricsCallback
     ) {
-        backgroundExecutor.submit {
-            if (cancelled.get()) return@submit
+        bgScope.launch {
+            if (cancelled.get()) return@launch
 
             Log.d(TAG, "Background upgrade search (current: synced=${current.isSynced}, wordByWord=${current.isWordByWord})...")
 
+            val resultsList = mutableListOf<LyricsResult>()
             // Search all providers for a better result
             val result = router.searchAll(track, track.detectedLanguage, cancelOnEarlyWin = false) { provider, res ->
-                mainHandler.post { callback.onProviderResult(provider, res) }
+                if (res != null) {
+                    synchronized(resultsList) {
+                        resultsList.add(res)
+                    }
+                }
+                bgScope.launch(Dispatchers.Main) { callback.onProviderResult(provider, res) }
             }
 
-            if (cancelled.get()) return@submit
+            if (resultsList.isNotEmpty()) {
+                LyricsHelper.put(track.getCacheKey(), resultsList)
+            }
+
+            if (cancelled.get()) return@launch
 
             if (result != null && result.hasLyrics() && result.confidence >= ConfidenceScorer.THRESHOLD_SHOW) {
                 val decision = decisionEngine.decide(result, current)
@@ -356,8 +501,16 @@ class LyricsFetchManager private constructor(context: Context) {
                     decision == LyricsDecisionEngine.Decision.ACCEPT
                 ) {
                     cacheManager.put(track, result)
+                    
+                    val text = result.syncedLyrics ?: result.plainLyrics
+                    if (!text.isNullOrBlank()) {
+                        LyricsHelper.putSingle(track.cleanedTitle, track.cleanedArtist, text)
+                    }
+
                     telemetry.logResult(result, "BACKGROUND_UPGRADE")
-                    mainHandler.post { callback.onLyricsUpgraded(result) }
+                    withContext(Dispatchers.Main) {
+                        callback.onLyricsUpgraded(result)
+                    }
                 }
             }
         }
@@ -376,44 +529,81 @@ class LyricsFetchManager private constructor(context: Context) {
         // ═══════════════════════════════════════════
         providers.add(com.codetrio.spatialflow.data.lyrics.providers.YouTubeMusicLyricsProvider())
 
-
-
         // ═══════════════════════════════════════════
-        // LINE-BY-LINE PROVIDERS (standard sync)
+        // NETWORKING APIS
         // ═══════════════════════════════════════════
 
-        // LRCLIB — best open-source baseline
-        val lrcLibApi = Retrofit.Builder()
-            .baseUrl("https://lrclib.net/")
-            .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(LrcLibApi::class.java)
-        providers.add(LrcLibProvider(lrcLibApi))
+        val gsonConverter = GsonConverterFactory.create()
 
-        // SyncLRC — alternative high-fidelity provider
+        // SyncLRC
         val syncLrcApi = Retrofit.Builder()
             .baseUrl("https://api.synclrc.dev/")
             .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
             .create(com.codetrio.spatialflow.data.lyrics.SyncLrcApi::class.java)
-        providers.add(com.codetrio.spatialflow.data.lyrics.providers.SyncLrcProvider(syncLrcApi))
 
-        // Paxsenix Multi-Provider API
-        val paxsenixApi = Retrofit.Builder()
-            .baseUrl("https://lyrics.paxsenix.org/")
+        // LRCLIB
+        val lrcLibApi = Retrofit.Builder()
+            .baseUrl("https://lrclib.net/")
             .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(gsonConverter)
             .build()
-            .create(com.codetrio.spatialflow.data.lyrics.PaxsenixApi::class.java)
+            .create(LrcLibApi::class.java)
 
-        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixAppleMusicProvider(paxsenixApi))
-        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixSpotifyProvider(paxsenixApi))
-        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixMusixmatchProvider(paxsenixApi))
-        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixYoutubeProvider(paxsenixApi))
+        // KuGou
+        val kugouApi = Retrofit.Builder()
+            .baseUrl("https://wwwapi.kugou.com/")
+            .client(client)
+            .addConverterFactory(gsonConverter)
+            .build()
+            .create(KugouApi::class.java)
+
+        val kugouLegacyApi = Retrofit.Builder()
+            .baseUrl("http://lyrics.kugou.com/")
+            .client(client)
+            .addConverterFactory(gsonConverter)
+            .build()
+            .create(com.codetrio.spatialflow.data.lyrics.KugouLegacyApi::class.java)
+
+        // BetterLyrics
+        val betterLyricsApiInstance = Retrofit.Builder()
+            .baseUrl("https://lyrics-api.boidu.dev/")
+            .client(client)
+            .addConverterFactory(gsonConverter)
+            .build()
+            .create(BetterLyricsApi::class.java)
+        this.betterLyricsApi = betterLyricsApiInstance
+
+        // SimpMusic
+        val simpMusicApi = Retrofit.Builder()
+            .baseUrl("https://api-lyrics.simpmusic.org/")
+            .client(client)
+            .addConverterFactory(gsonConverter)
+            .build()
+            .create(SimpMusicApi::class.java)
+
+        // YouLyPlus (multi-mirror TTML / LRC Karaoke)
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.YouLyPlusProvider())
+
+        // YouTube Subtitle (timed transcript captions)
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.YouTubeSubtitleProvider())
+
+        // Paxsenix providers — no Retrofit needed; PaxsenixLyrics singleton handles HTTP with OkHttp
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixAppleMusicProvider(appContext))
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixSpotifyProvider(appContext))
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixMusixmatchProvider(appContext))
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixNeteaseProvider(appContext))
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.paxsenix.PaxsenixYouTubeProvider(appContext))
+        providers.add(com.codetrio.spatialflow.data.lyrics.providers.SyncLrcProvider(syncLrcApi))
+        providers.add(LrcLibProvider(lrcLibApi))
+        providers.add(KugouProvider(kugouApi, kugouLegacyApi))
+        providers.add(BetterLyricsProvider(betterLyricsApiInstance))
+        providers.add(SimpMusicProvider(simpMusicApi))
 
         Log.d(TAG, "Initialized ${providers.size} lyrics providers")
         return providers
     }
+
+
 }

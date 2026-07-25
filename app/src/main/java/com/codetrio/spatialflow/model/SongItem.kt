@@ -19,6 +19,7 @@ data class SongItem(
 ) : Serializable {
 
     @JvmField var thumbnailUrl: String? = null
+    @JvmField var animatedThumbnailUrl: String? = null
     @JvmField var videoId: String? = null
     @JvmField var artistId: String? = null
     @JvmField var lufs: Float? = null
@@ -30,6 +31,17 @@ data class SongItem(
         set(value) {
             uriString = value.toString()
         }
+
+    fun cloneWithAnimatedUrl(url: String): SongItem {
+        return SongItem(id, title, artist, albumId, path, duration, dateAdded, data).also {
+            it.thumbnailUrl = this.thumbnailUrl
+            it.animatedThumbnailUrl = url
+            it.videoId = this.videoId
+            it.artistId = this.artistId
+            it.lufs = this.lufs
+            it.uriString = this.uriString
+        }
+    }
 
     // Main constructor with automatic cleaning fallbacks
     constructor(
@@ -66,18 +78,21 @@ data class SongItem(
         return contentUri
     }
 
-    @RequiresApi(Build.VERSION_CODES.Q)
     fun getEmbeddedPicture(context: android.content.Context): ByteArray? {
         val currentPath = path ?: return null
         if (currentPath.startsWith("http")) return null
+        val mmr = android.media.MediaMetadataRetriever()
         try {
             context.contentResolver.openFileDescriptor(contentUri, "r")?.use { pfd ->
-                android.media.MediaMetadataRetriever().use { mmr ->
-                    mmr.setDataSource(pfd.fileDescriptor)
-                    return mmr.embeddedPicture
-                }
+                mmr.setDataSource(pfd.fileDescriptor)
+                return mmr.embeddedPicture
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        } finally {
+            try {
+                mmr.release()
+            } catch (_: Exception) {}
+        }
         return null
     }
 
@@ -105,6 +120,8 @@ data class SongItem(
                         fileName = fileName.substring(0, fileName.length - 4)
                     } else if (fileName.lowercase().endsWith(".m4a")) {
                         fileName = fileName.substring(0, fileName.length - 4)
+                    } else if (fileName.lowercase().endsWith(".opus")) {
+                        fileName = fileName.substring(0, fileName.length - 5)
                     }
                     if (fileName.contains(" - ")) {
                         val parts = fileName.split(" - ", limit = 2)
@@ -129,6 +146,8 @@ data class SongItem(
                         fileName = fileName.substring(0, fileName.length - 4)
                     } else if (fileName.lowercase().endsWith(".m4a")) {
                         fileName = fileName.substring(0, fileName.length - 4)
+                    } else if (fileName.lowercase().endsWith(".opus")) {
+                        fileName = fileName.substring(0, fileName.length - 5)
                     }
                     if (fileName.contains(" - ")) {
                         val parts = fileName.split(" - ", limit = 2)
@@ -141,11 +160,12 @@ data class SongItem(
 
         @JvmStatic
         @JvmOverloads
-        fun createOnlineSong(videoId: String?, title: String?, artist: String?, streamUrl: String?, durationMs: Long, thumbnailUrl: String?, artistId: String? = null): SongItem {
+        fun createOnlineSong(videoId: String?, title: String?, artist: String?, streamUrl: String?, durationMs: Long, thumbnailUrl: String?, artistId: String? = null, animatedThumbnailUrl: String? = null): SongItem {
             val id = videoId?.hashCode()?.toLong() ?: (streamUrl?.hashCode()?.toLong() ?: System.currentTimeMillis())
             val song = SongItem(id, title ?: "Unknown Title", artist ?: "Unknown Artist", -1, streamUrl, durationMs, System.currentTimeMillis())
             song.contentUri = (streamUrl ?: "").toUri()
             song.thumbnailUrl = thumbnailUrl?.let { enhanceThumbnailUrl(it) }
+            song.animatedThumbnailUrl = animatedThumbnailUrl
             song.videoId = videoId
             song.artistId = artistId
             return song

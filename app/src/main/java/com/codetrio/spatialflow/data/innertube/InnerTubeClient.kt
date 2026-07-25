@@ -595,11 +595,15 @@ object InnerTubeClient {
     /**
      * Like a video/song to influence preferences/recap on YouTube Music
      */
-    suspend fun like(videoId: String): JsonObject = withContext(Dispatchers.IO) {
+    suspend fun like(targetId: String): JsonObject = withContext(Dispatchers.IO) {
         val body = JsonObject().apply {
             add("context", webRemixContext())
             val target = JsonObject().apply {
-                addProperty("videoId", videoId)
+                if (targetId.startsWith("VL") || targetId.startsWith("PL") || targetId.startsWith("RD")) {
+                    addProperty("playlistId", targetId)
+                } else {
+                    addProperty("videoId", targetId)
+                }
             }
             add("target", target)
         }
@@ -609,11 +613,15 @@ object InnerTubeClient {
     /**
      * Dislike a video/song on YouTube Music
      */
-    suspend fun dislike(videoId: String): JsonObject = withContext(Dispatchers.IO) {
+    suspend fun dislike(targetId: String): JsonObject = withContext(Dispatchers.IO) {
         val body = JsonObject().apply {
             add("context", webRemixContext())
             val target = JsonObject().apply {
-                addProperty("videoId", videoId)
+                if (targetId.startsWith("VL") || targetId.startsWith("PL") || targetId.startsWith("RD")) {
+                    addProperty("playlistId", targetId)
+                } else {
+                    addProperty("videoId", targetId)
+                }
             }
             add("target", target)
         }
@@ -623,11 +631,15 @@ object InnerTubeClient {
     /**
      * Remove a like to sync preference state
      */
-    suspend fun removeLike(videoId: String): JsonObject = withContext(Dispatchers.IO) {
+    suspend fun removeLike(targetId: String): JsonObject = withContext(Dispatchers.IO) {
         val body = JsonObject().apply {
             add("context", webRemixContext())
             val target = JsonObject().apply {
-                addProperty("videoId", videoId)
+                if (targetId.startsWith("VL") || targetId.startsWith("PL") || targetId.startsWith("RD")) {
+                    addProperty("playlistId", targetId)
+                } else {
+                    addProperty("videoId", targetId)
+                }
             }
             add("target", target)
         }

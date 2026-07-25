@@ -8,13 +8,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -26,6 +25,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +37,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -52,15 +54,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -68,19 +67,25 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.palette.graphics.Palette
+import coil.ImageLoader
+import coil.request.ImageRequest
 import com.codetrio.spatialflow.MainActivity
 import com.codetrio.spatialflow.R
 import com.codetrio.spatialflow.data.lyrics.LyricLine
 import com.codetrio.spatialflow.data.lyrics.LyricsResult
 import com.codetrio.spatialflow.model.SongItem
+import com.codetrio.spatialflow.player.queue.SlidingQueueDrawer
 import com.codetrio.spatialflow.viewmodel.PlayerSharedViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Stateful wrapper for the FullPlayer UI component.
  * Decouples the UI component from ViewModel, Activity, and direct permission handling.
  */
-@RequiresApi(Build.VERSION_CODES.Q)
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun FullPlayerScreen(
@@ -104,6 +109,7 @@ fun FullPlayerScreen(
     val providerResults by viewModel.providerResults.collectAsStateWithLifecycle()
     val selectedProvider by viewModel.selectedProvider.collectAsStateWithLifecycle()
     val currentPositionState = viewModel.currentPosition.collectAsStateWithLifecycle()
+    val isAutoplayEnabled by viewModel.isAutoplayEnabled.collectAsStateWithLifecycle()
 
     // Handle back button when lyrics mode is enabled
     BackHandler(enabled = isLyricsModeEnabled) {
@@ -128,6 +134,43 @@ fun FullPlayerScreen(
             com.codetrio.spatialflow.ui.SnackbarController.showMessage("Microphone permission required for haptics")
         }
     }
+    
+    val localPlaylists by viewModel.localPlaylistsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showAddToPlaylistDialog by remember { mutableStateOf(false) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+
+    if (showAddToPlaylistDialog) {
+        com.codetrio.spatialflow.ui.LocalPlaylistPickerDialog(
+            playlists = localPlaylists,
+            onCreateNew = {
+                showCreatePlaylistDialog = true
+                showAddToPlaylistDialog = false
+            },
+            onPlaylistSelected = { playlist ->
+                val currentSong = uiState.currentSong
+                if (currentSong != null) {
+                    viewModel.addSongToLocalPlaylist(playlist.id, currentSong)
+                    com.codetrio.spatialflow.ui.SnackbarController.showMessage("Added to playlist: ${playlist.title}")
+                }
+                showAddToPlaylistDialog = false
+            },
+            onDismiss = { showAddToPlaylistDialog = false }
+        )
+    }
+
+    if (showCreatePlaylistDialog) {
+        com.codetrio.spatialflow.ui.CreateLocalPlaylistDialog(
+            onConfirm = { name ->
+                viewModel.createLocalPlaylist(name)
+                showCreatePlaylistDialog = false
+                showAddToPlaylistDialog = true
+            },
+            onDismiss = {
+                showCreatePlaylistDialog = false
+                showAddToPlaylistDialog = true
+            }
+        )
+    }
 
     FullPlayer(
         viewModel = viewModel,
@@ -143,6 +186,8 @@ fun FullPlayerScreen(
         selectedProvider = selectedProvider,
         onProviderSelected = { viewModel.selectLyricsProvider(it) },
         currentPositionProvider = { currentPositionState.value },
+        isAutoplayEnabled = isAutoplayEnabled,
+        onAutoplayToggle = { viewModel.setAutoplayEnabled(!isAutoplayEnabled) },
         onCollapse = onCollapse,
         onPlayPauseClick = {
             if (uiState.isPlaying) viewModel.pauseAudio() else viewModel.playAudio()
@@ -182,6 +227,9 @@ fun FullPlayerScreen(
         },
         onDislikeClick = {
             viewModel.toggleDislike()
+        },
+        onSaveClick = {
+            showAddToPlaylistDialog = true
         },
         onArtistClick = { artistId, artistName ->
             onCollapse()
@@ -225,25 +273,37 @@ fun FullPlayer(
     onSeekTo: (Int) -> Unit,
     onFavoriteClick: () -> Unit,
     onDislikeClick: () -> Unit,
+    onSaveClick: () -> Unit,
     providerResults: Map<String, LyricsResult>,
     selectedProvider: String?,
     onProviderSelected: (String) -> Unit,
+    isAutoplayEnabled: Boolean,
+    onAutoplayToggle: (Boolean) -> Unit,
     onArtistClick: (String?, String) -> Unit = { _, _ -> },
     dragModifier: Modifier = Modifier,
     modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
-    val contentColor = if (isDark) Color.White else Color(0xFF1C1B1F)
-    val contentSecondary = if (isDark) Color.White.copy(alpha = 0.6f) else Color(0xFF1C1B1F).copy(alpha = 0.6f)
+    val canvasArtwork by viewModel.canvasArtwork.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE) }
+    val showAnimatedArt = prefs.getBoolean("show_animated_art", true)
+    val playerTheme = prefs.getString("player_theme", "fluid") ?: "fluid"
+    val isStatic = playerTheme == "static"
+    val hasCanvas = !isStatic && showAnimatedArt && canvasArtwork != null
 
-    val dynamicAccentColor = remember(accentColor, isDark) {
+    val isTextColorDark = !isDark && isStatic
+    val contentColor = if (isTextColorDark) Color(0xFF1C1B1F) else Color.White
+    val contentSecondary = if (isTextColorDark) Color(0xFF1C1B1F).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f)
+
+    val dynamicAccentColor = remember(accentColor, isTextColorDark) {
         val hsl = FloatArray(3)
         androidx.core.graphics.ColorUtils.colorToHSL(accentColor.toArgb(), hsl)
         if (hsl[1] < 0.08f) {
             // Monochromatic / Grayscale
-            if (isDark) Color.White else Color(0xFF1C1B1F)
+            if (isTextColorDark) Color(0xFF1C1B1F) else Color.White
         } else {
-            if (isDark) {
+            if (!isTextColorDark) {
                 accentColor
             } else {
                 hsl[2] = hsl[2].coerceAtMost(0.45f)
@@ -253,24 +313,25 @@ fun FullPlayer(
         }
     }
 
-    val backgroundBrush = remember(uiState.playerBackgroundColor, isDark) {
-        val playerColor = Color(uiState.playerBackgroundColor)
-        val finalColor = deriveArtworkSurfaceColor(
-            sourceColor = playerColor,
-            isDark = isDark,
-            darkLightness = 0.155f,
-            lightLightness = 0.835f,
-            darkSaturationRange = 0.32f..0.54f,
-            lightSaturationRange = 0.30f..0.48f
-        )
-        androidx.compose.ui.graphics.SolidColor(finalColor)
+    val playerBackgroundColor = remember(uiState.playerBackgroundColor, isTextColorDark) {
+        val baseColor = Color(uiState.playerBackgroundColor)
+        val hsl = FloatArray(3)
+        androidx.core.graphics.ColorUtils.colorToHSL(baseColor.toArgb(), hsl)
+        val isMonochrome = hsl[1] < 0.06f
+        if (!isTextColorDark) {
+            hsl[2] = 0.155f
+            hsl[1] = if (isMonochrome) 0f else hsl[1].coerceIn(0.32f, 0.54f)
+            Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
+        } else {
+            hsl[2] = 0.835f
+            hsl[1] = if (isMonochrome) 0f else hsl[1].coerceIn(0.30f, 0.48f)
+            Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
+        }
     }
 
     val haptic = LocalHapticFeedback.current
     val hasLyrics = !syncedLyrics.isNullOrEmpty() || !plainLyrics.isNullOrBlank()
     val currentSongId = uiState.currentSong?.id
-    var lastLyricsFetchSongId by remember { mutableStateOf<Long?>(null) }
-    val context = LocalContext.current
     
     // Sliding Queue Drawer State
     val isQueueExpanded by viewModel.isQueueExpanded.collectAsStateWithLifecycle()
@@ -291,43 +352,90 @@ fun FullPlayer(
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val sleepTimerMode by viewModel.sleepTimerMode.collectAsStateWithLifecycle()
     val sleepTimerEndTime by viewModel.sleepTimerEndTime.collectAsStateWithLifecycle()
-    
-    val lyricsBackgroundBrush = remember(uiState.playerBackgroundColor, isDark) {
-        val playerColor = Color(uiState.playerBackgroundColor)
-        val finalColor = deriveArtworkSurfaceColor(
-            sourceColor = playerColor,
-            isDark = isDark,
-            darkLightness = 0.145f,
-            lightLightness = 0.825f,
-            darkSaturationRange = 0.32f..0.54f,
-            lightSaturationRange = 0.30f..0.48f
-        )
-        androidx.compose.ui.graphics.SolidColor(finalColor)
-    }
 
-    // Trigger lyrics load when enabled
-    LaunchedEffect(isLyricsModeEnabled, currentSongId) {
-        if (!isLyricsModeEnabled) return@LaunchedEffect
-        if (currentSongId == null) {
-            lastLyricsFetchSongId = null
-            return@LaunchedEffect
-        }
-        if (lastLyricsFetchSongId != currentSongId) {
-            lastLyricsFetchSongId = currentSongId
-            onFetchLyrics()
+    // ── Palette extraction pipeline (spec §2.2) ─────────────────────────────────
+    // Triggered whenever the playing track's artwork changes.
+    // Runs entirely on Dispatchers.IO — never blocks the main thread.
+    // Downloads artwork → BitmapResolver.bitmapCompress (64 px square, RGB_565) →
+    // AndroidX Palette.generate() → writes vibrant / darkVibrant / darkMuted into
+    // PlayerPaletteState (global singleton). Falls back to Color.Black on missing swatch.
+    // ── Palette extraction key ────────────────────────────────────────────────────
+    // IMPORTANT: for local MP3 files, thumbnailUrl AND videoId are both null.
+    // We MUST include getAlbumArtUri() first, otherwise artworkKey is null and
+    // the LaunchedEffect short-circuits → PlayerPaletteState stays Color.Black → pitch black.
+    val artworkKey = remember(uiState.currentSong) {
+        uiState.currentSong?.let { song ->
+            song.getAlbumArtUri()?.toString()       // local MP3 embedded art  (content://)
+                ?: song.thumbnailUrl                 // YouTube Music stream
+                ?: song.videoId?.let { "yt_$it" }   // YouTube video ID fallback
         }
     }
+    val paletteContext = context
+    LaunchedEffect(artworkKey) {
+        if (artworkKey == null) return@LaunchedEffect
 
-    Box(
+        withContext(Dispatchers.IO) {
+            val song = uiState.currentSong ?: return@withContext
+            // artworkData priority: local URI → thumbnail URL → YouTube fallback
+            val artworkData: Any = song.getAlbumArtUri()
+                ?: song.thumbnailUrl
+                ?: song.videoId?.let { "https://img.youtube.com/vi/$it/hqdefault.jpg" }
+                ?: return@withContext
+
+            val loader = ImageLoader(paletteContext)
+            try {
+                val request = ImageRequest.Builder(paletteContext)
+                    .data(artworkData)
+                    .allowHardware(false) // hardware bitmaps cannot be read by Palette
+                    .build()
+
+                // Step 1 — download/load artwork
+                val thisBitmap = loader.execute(request).drawable
+                    ?.toBitmap()
+                    ?.run { BitmapResolver.bitmapCompress(this) }  // 64 px, RGB_565
+
+                if (thisBitmap != null) {
+                    try {
+                        // Step 2 — run AndroidX Palette on the compressed bitmap
+                        val palette = Palette.from(thisBitmap).generate()
+
+                        // Use dominantSwatch as non-black fallback when a specific
+                        // swatch is missing (dark/monochromatic art like "After Dark").
+                        val dominant = palette.dominantSwatch?.rgb?.let { Color(it) }
+
+                        PlayerPaletteState.vibrantColor.value =
+                            palette.vibrantSwatch?.rgb?.let { Color(it) } ?: Color.Black
+
+                        PlayerPaletteState.darkVibrantColor.value =
+                            palette.darkVibrantSwatch?.rgb?.let { Color(it) } ?: Color.Black
+
+                        PlayerPaletteState.darkMutedColor.value =
+                            palette.darkMutedSwatch?.rgb?.let { Color(it) } ?: Color.Black
+
+                    } catch (_: Exception) { /* palette failure — keep existing colors */ }
+
+                    thisBitmap.recycle() // ← always recycle to avoid OOM
+                }
+            } finally {
+                loader.shutdown() // ← always shut down the loader
+            }
+        }
+    }
+    // ── End palette extraction ──────────────────────────────────────────────────
+
+    AppleMusicBackground(
+        song = uiState.currentSong,
+        canvasArtwork = canvasArtwork,
+        isPlaying = uiState.isPlaying,
+        isLyricsModeEnabled = isLyricsModeEnabled,
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundBrush)
-            .then(if (isQueueExpanded || isLyricsModeEnabled) Modifier else dragModifier) // Drag down anywhere to collapse
+            .then(if (isQueueExpanded || isLyricsModeEnabled) Modifier else dragModifier)
     ) {
         val configuration = LocalConfiguration.current
         val screenWidth = configuration.screenWidthDp.dp
         val screenHeight = configuration.screenHeightDp.dp
-        val albumArtSize = screenWidth * 0.9f
+        val albumArtSize = androidx.compose.ui.unit.min(screenWidth * 0.9f, screenHeight * 0.45f)
 
         val density = androidx.compose.ui.platform.LocalDensity.current
         val statusBarTopDp = with(density) { androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(this).toDp() }
@@ -336,66 +444,15 @@ fun FullPlayer(
         // Calculate top offset to perfectly match yEndPx in PlayerBottomSheetCompose
         val topOffset = ((screenHeight - albumArtSize) / 2f - 220.dp).coerceAtLeast(minTopOffset)
 
-        var lyricsButtonCenterInRoot by remember { mutableStateOf<Offset?>(null) }
-        val lyricsRevealProgress by animateFloatAsState(
-            targetValue = if (isLyricsModeEnabled) 1f else 0f,
-            animationSpec = tween(durationMillis = 340, easing = FastOutSlowInEasing),
-            label = "LyricsCircularReveal"
-        )
+        val dimens = com.codetrio.spatialflow.ui.theme.LocalDimens.current
+        val isTablet = configuration.screenWidthDp >= 600
 
-        // Tie the visibility/readiness directly to the lyricsRevealProgress animation state
-        val lyricsContentReady = lyricsRevealProgress > 0.8f
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Header Row (Nav controls + collapse) - Symmetric centering
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onCollapse) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_keyboard_arrow_down),
-                        contentDescription = "Collapse Player",
-                        tint = contentColor.copy(alpha = 0.8f),
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                Text(
-                    text = "NOW PLAYING",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = contentSecondary
-                )
-
-                Spacer(modifier = Modifier.size(48.dp))
-            }
-
-            Spacer(modifier = Modifier.height(topOffset - (statusBarTopDp + 68.dp)))
-
-            // Album Art Container Placeholder (ArtworkPager is rendered at this absolute position)
-            Box(
-                modifier = Modifier
-                    .size(albumArtSize)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
+        val rightPaneContent: @Composable () -> Unit = {
             // Metadata row: title/artist
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
@@ -482,24 +539,24 @@ fun FullPlayer(
                     isSelected = isLyricsModeEnabled,
                     onClick = {
                         onLyricsModeChanged(true)
-                        if (currentSongId != null && lastLyricsFetchSongId != currentSongId && !hasLyrics && !isLyricsLoading) {
-                            lastLyricsFetchSongId = currentSongId
+                        if (currentSongId != null && !hasLyrics && !isLyricsLoading) {
                             onFetchLyrics()
                         }
                     },
                     contentColor = contentColor,
                     accentColor = dynamicAccentColor,
-                    isDark = isDark,
-                    modifier = Modifier.onGloballyPositioned { coordinates ->
-                        val position = coordinates.positionInRoot()
-                        lyricsButtonCenterInRoot = Offset(
-                            x = position.x + coordinates.size.width / 2f,
-                            y = position.y + coordinates.size.height / 2f
-                        )
-                    }
+                    isDark = isDark
                 )
 
 
+                PillChip(
+                    icon = Icons.Rounded.PlaylistAdd,
+                    label = "Save",
+                    onClick = onSaveClick,
+                    contentColor = contentColor,
+                    accentColor = dynamicAccentColor,
+                    isDark = isDark
+                )
 
                 PillChip(
                     icon = painterResource(id = R.drawable.ic_share),
@@ -520,7 +577,7 @@ fun FullPlayer(
                 val realDownloaded = uiState.isCurrentSongDownloaded
                 val realDownloadProgress = uiState.currentSongDownloadProgress
                 val isDownloading = realDownloadProgress != null
-                
+
                 val downloadLabel = when {
                     realDownloaded -> "Downloaded"
                     isDownloading -> "Downloading ${realDownloadProgress}%"
@@ -560,7 +617,8 @@ fun FullPlayer(
                 dynamicAccentColor = dynamicAccentColor,
                 contentColor = contentColor,
                 contentSecondary = contentSecondary,
-                isDark = isDark
+                isDark = isDark,
+                playbackFormat = uiState.playbackFormat
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -736,30 +794,111 @@ fun FullPlayer(
             }
         }
 
-        if (lyricsRevealProgress > 0f) {
-            FullScreenLyricsOverlay(
-                currentSong = uiState.currentSong,
-                syncedLyrics = syncedLyrics,
-                plainLyrics = plainLyrics,
-                isLoading = isLyricsLoading,
-                lyricsError = lyricsError,
-                currentPositionProvider = currentPositionProvider,
-                contentReady = lyricsContentReady,
-                backgroundBrush = lyricsBackgroundBrush,
-                revealProgressProvider = { lyricsRevealProgress },
-                revealCenterProvider = { lyricsButtonCenterInRoot },
-                contentColor = contentColor,
-                contentSecondary = contentSecondary,
-                dynamicAccentColor = dynamicAccentColor,
-                onRetryLyrics = onRetryLyrics,
-                onFetchLyrics = onFetchLyrics,
-                onSeekTo = onSeekTo,
-                providerResults = providerResults,
-                selectedProvider = selectedProvider,
-                onProviderSelected = onProviderSelected,
-                modifier = Modifier.fillMaxSize()
-            )
+        AnimatedVisibility(
+            visible = !isLyricsModeEnabled,
+            enter = fadeIn(animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow)),
+            exit = fadeOut(animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = dimens.screenMargin, vertical = dimens.smallPadding),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Header Row (Nav controls + collapse) - Symmetric centering
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onCollapse) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_keyboard_arrow_down),
+                            contentDescription = "Collapse Player",
+                            tint = contentColor.copy(alpha = 0.8f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    if (!hasCanvas || isLyricsModeEnabled) {
+                        Text(
+                            text = "NOW PLAYING",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = contentSecondary
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.size(48.dp))
+                    }
+
+                    Spacer(modifier = Modifier.size(48.dp))
+                }
+
+                if (isTablet) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(modifier = Modifier.size(albumArtSize))
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            rightPaneContent()
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(topOffset - (statusBarTopDp + 68.dp)))
+
+                    // Album Art Container Placeholder (ArtworkPager is rendered at this absolute position)
+                    Box(
+                        modifier = Modifier.size(albumArtSize)
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    rightPaneContent()
+                }
+            }
         }
+
+        LyricsBottomSheet(
+            visible = isLyricsModeEnabled,
+            currentSong = uiState.currentSong,
+            syncedLyrics = syncedLyrics,
+            plainLyrics = plainLyrics,
+            isLoading = isLyricsLoading,
+            lyricsError = lyricsError,
+            currentPositionProvider = currentPositionProvider,
+            contentReady = true,
+            playerBackgroundColor = playerBackgroundColor,
+            canvasArtwork = canvasArtwork,
+            contentColor = contentColor,
+            contentSecondary = contentSecondary,
+            dynamicAccentColor = dynamicAccentColor,
+            onRetryLyrics = onRetryLyrics,
+            onFetchLyrics = onFetchLyrics,
+            onSeekTo = onSeekTo,
+            providerResults = providerResults,
+            selectedProvider = selectedProvider,
+            onProviderSelected = onProviderSelected,
+            isPlaying = uiState.isPlaying,
+            onPlayPauseClick = onPlayPauseClick,
+            duration = uiState.duration.toLong(),
+            onCollapse = { viewModel.setLyricsModeEnabled(false) },
+            modifier = Modifier.fillMaxSize()
+        )
 
         // --- CUSTOM EMBEDDED SLIDING PLAY QUEUE ---
         SlidingQueueDrawer(
@@ -772,12 +911,15 @@ fun FullPlayer(
             sleepTimerMode = sleepTimerMode,
             onReorderQueue = { from, to -> viewModel.reorderQueue(from, to) },
             onPlaySongAtIndex = { index -> viewModel.playSongAtIndex(index) },
+            onRemoveSongAtIndex = { index -> viewModel.removeSongAtIndex(index) },
             onToggleShuffle = { viewModel.toggleShuffle() },
             onToggleLoopMode = { viewModel.toggleLoopMode() },
             onShowSleepTimerDialog = { showSleepTimerDialog = true },
-            playerBackgroundColor = uiState.playerBackgroundColor,
+            playerBackgroundColor = playerBackgroundColor.toArgb(),
             dynamicAccentColor = dynamicAccentColor,
-            isDark = isDark
+            isDark = isDark,
+            isAutoplayEnabled = isAutoplayEnabled,
+            onAutoplayToggle = onAutoplayToggle
         )
 
         // --- Standalone Sleep Timer Bottom Sheet ---

@@ -19,5 +19,7 @@ data class PlayerUiState(
     val playerBackgroundColor: Int = 0xFF0F0F0F.toInt(),
     val likesCount: String = "Like",
     val isCurrentSongDownloaded: Boolean = false,
-    val currentSongDownloadProgress: Int? = null
+    val currentSongDownloadProgress: Int? = null,
+    val streamingQuality: String = "High",
+    val playbackFormat: String = "OPUS"
 )

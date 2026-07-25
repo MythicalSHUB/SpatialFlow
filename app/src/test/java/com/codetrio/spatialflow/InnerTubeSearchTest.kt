@@ -28,4 +28,23 @@ class InnerTubeSearchTest {
             }
         }
     }
+
+    @Test
+    fun testMoodsAndGenres() {
+        runBlocking {
+            val parsedResult = YouTubeMusic.moodsAndGenres()
+            assertTrue("Moods and genres request should be successful", parsedResult.isSuccess)
+            parsedResult.onSuccess { sections ->
+                println("Parsed sections size: ${sections.size}")
+                sections.forEach { section ->
+                    println("Section: ${section.title}")
+                    section.items.forEach { item ->
+                        if (item is com.codetrio.spatialflow.data.innertube.SearchItem.Playlist) {
+                            println("  Playlist: ${item.playlist.title}, thumb: ${item.playlist.thumbnailUrl}, color: ${item.playlist.color}")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

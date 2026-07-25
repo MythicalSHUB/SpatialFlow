@@ -186,4 +186,6 @@ class LyricsRepository private constructor(context: Context) {
     fun cancelCurrent() {
         fetchManager.cancelCurrent()
     }
+
+
 }

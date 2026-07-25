@@ -50,6 +50,26 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- YouTube Music / YouTube Deep Links -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="music.youtube.com" />
+                <data android:host="youtube.com" />
+                <data android:host="www.youtube.com" />
+                <data android:host="youtu.be" />
+            </intent-filter>
+
+            <!-- Share Target for YouTube Links -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- Popup Player for External Audio Files -->
@@ -110,43 +130,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- SpatialFlow App Widgets -->
 
-        <receiver
-            android:name=".ui.widget.WidgetSmallProvider"
-            android:exported="true"
-            android:label="SpatialFlow Aura (2x2)">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_info_small" />
-        </receiver>
-
-        <receiver
-            android:name=".ui.widget.WidgetMediumProvider"
-            android:exported="true"
-            android:label="SpatialFlow Bridge (4x2)">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_info_medium" />
-        </receiver>
-
-        <receiver
-            android:name=".ui.widget.WidgetLargeProvider"
-            android:exported="true"
-            android:label="SpatialFlow Dashboard (4x4)">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_info_large" />
-        </receiver>
 
 
     </application>

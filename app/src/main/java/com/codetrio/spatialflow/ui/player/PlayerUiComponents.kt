@@ -12,6 +12,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -259,15 +264,43 @@ internal fun WavySliderWithLabels(
     contentColor: Color,
     contentSecondary: Color,
     isDark: Boolean,
+    playbackFormat: String,
     modifier: Modifier = Modifier
 ) {
     var isScrubbing by remember { mutableStateOf(false) }
     var sliderScrubPos by remember { mutableFloatStateOf(0f) }
+    var lastSeekTime by remember { mutableLongStateOf(0L) }
+    var lastSeekPos by remember { mutableFloatStateOf(0f) }
 
     val currentPosition = currentPositionProvider()
     val safeDur = if (duration > 0) duration.toFloat() else 1f
-    val displayPos = if (isScrubbing) (sliderScrubPos * safeDur).toInt() else currentPosition
     val progressRatio = (currentPosition.toFloat() / safeDur).coerceIn(0f, 1f)
+
+    val isWaitingForPlayer = remember(progressRatio, lastSeekTime, lastSeekPos) {
+        val elapsed = System.currentTimeMillis() - lastSeekTime
+        val diff = kotlin.math.abs(progressRatio - lastSeekPos)
+        elapsed < 1000 && diff > 0.02f
+    }
+
+    val displayValue = when {
+        isScrubbing -> sliderScrubPos
+        isWaitingForPlayer -> lastSeekPos
+        else -> progressRatio
+    }
+
+    val displayPos = when {
+        isScrubbing -> (sliderScrubPos * safeDur).toInt()
+        isWaitingForPlayer -> (lastSeekPos * safeDur).toInt()
+        else -> currentPosition
+    }
+
+    val formatIcon = when (playbackFormat) {
+        "OPUS" -> Icons.Rounded.GraphicEq
+        "AAC" -> Icons.Rounded.MusicNote
+        "MP3" -> Icons.Rounded.AudioFile
+        "FLAC", "WAV" -> Icons.Rounded.HighQuality
+        else -> Icons.Rounded.MusicNote
+    }
 
     Column(
         modifier = modifier
@@ -275,13 +308,15 @@ internal fun WavySliderWithLabels(
             .padding(horizontal = 8.dp)
     ) {
         WavyMusicSlider(
-            value = if (isScrubbing) sliderScrubPos else progressRatio,
+            value = displayValue,
             onValueChange = {
                 isScrubbing = true
                 sliderScrubPos = it
             },
             onValueChangeFinished = {
                 isScrubbing = false
+                lastSeekTime = System.currentTimeMillis()
+                lastSeekPos = sliderScrubPos
                 onSeekTo((sliderScrubPos * safeDur).toInt())
             },
             activeTrackColor = dynamicAccentColor,
@@ -298,13 +333,42 @@ internal fun WavySliderWithLabels(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = formatDuration(displayPos.toLong()),
                 style = MaterialTheme.typography.labelSmall,
                 color = contentSecondary
             )
+
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = contentColor.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = formatIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = contentColor.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = playbackFormat,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = contentColor.copy(alpha = 0.7f)
+                    )
+                }
+            }
+
             Text(
                 text = formatDuration(duration.toLong()),
                 style = MaterialTheme.typography.labelSmall,
@@ -329,9 +393,19 @@ internal fun LyricsMetadataFooter(
 ) {
     if (currentSong == null) return
 
-    // Resolve album from the active provider's matched result
-    val activeResult = selectedProvider?.let { providerResults[it] }
+    // Resolve active result using the prioritized matching logic
+    val activeResult = providerResults[selectedProvider] ?: providerResults.values
+        .filter { it.confidence >= 0f && it.hasLyrics() }
+        .maxWithOrNull(
+            compareBy<LyricsResult> { it.isWordByWord }
+                .thenBy { it.isSynced }
+                .thenBy { it.providerName?.startsWith("BetterLyrics") == true }
+                .thenBy { it.providerName == "SyncLRC" }
+                .thenBy { it.confidence }
+        )
+
     val albumName = activeResult?.matchedAlbum
+    val providerName = activeResult?.providerName ?: selectedProvider
 
     val mutedColor = contentColor.copy(alpha = 0.35f)
     val metaStyle = MaterialTheme.typography.labelSmall.copy(
@@ -362,9 +436,9 @@ internal fun LyricsMetadataFooter(
             Text(text = albumName, style = metaStyle, maxLines = 1)
         }
         // Lyrics provider
-        if (!selectedProvider.isNullOrBlank()) {
+        if (!providerName.isNullOrBlank()) {
             Text(
-                text = "Lyrics by $selectedProvider",
+                text = "Lyrics by $providerName",
                 style = metaStyle,
                 maxLines = 1
             )

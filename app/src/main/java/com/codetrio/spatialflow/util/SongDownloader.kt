@@ -10,10 +10,13 @@ import android.provider.MediaStore
 import android.util.Log
 
 import androidx.core.app.NotificationCompat
+import android.net.Uri
 import com.bumptech.glide.Glide
 import com.codetrio.spatialflow.R
 import com.codetrio.spatialflow.data.innertube.NewPipeStreamExtractor
 import com.codetrio.spatialflow.model.SongItem
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -98,7 +101,9 @@ object SongDownloader {
                 // Initialize/Update download notification
                 updateNotification(context, cleanTitleStr, 0, notificationId)
 
-                val streamUrl = NewPipeStreamExtractor.getStreamUrl(videoId)
+                val playerResult = NewPipeStreamExtractor.getPlayerResult(videoId)
+                val bestStream = playerResult?.streams?.firstOrNull()
+                val streamUrl = bestStream?.url ?: NewPipeStreamExtractor.getStreamUrl(videoId)
                 if (streamUrl == null) {
                     cancelNotification(context, notificationId)
                     withContext(Dispatchers.Main) {
@@ -107,10 +112,14 @@ object SongDownloader {
                     return@launch
                 }
 
-                // Create output file
-                val fileName = "$cleanTitleStr - $cleanArtistStr.mp3"
-                val outputFile = AudioFileManager.createOutputFile(context, fileName)
+                val mimeType = bestStream?.mimeType ?: ""
+                val isOpusSource = mimeType.contains("webm", ignoreCase = true) || 
+                                   mimeType.contains("opus", ignoreCase = true) ||
+                                   streamUrl.contains("mime=audio/webm") ||
+                                   streamUrl.contains("codecs=opus")
 
+                // Create temp download file
+                val tempDownloadFile = File(context.cacheDir, "temp_download_${videoId}.tmp")
                 val url = URL(streamUrl)
                 val connection = url.openConnection() as HttpURLConnection
                 connection.connect()
@@ -125,7 +134,7 @@ object SongDownloader {
 
                 val totalBytes = connection.contentLength
                 connection.inputStream.use { input ->
-                    FileOutputStream(outputFile).use { output ->
+                    FileOutputStream(tempDownloadFile).use { output ->
                         val buffer = ByteArray(8192)
                         var bytesRead: Int
                         var downloadedBytes = 0
@@ -150,8 +159,8 @@ object SongDownloader {
                     }
                 }
 
-                // Load, auto-crop 1:1, and compress thumbnail
-                var artworkBytes: ByteArray? = null
+                // Load, auto-crop 1:1, and compress thumbnail to a temp file
+                var artworkFile: File? = null
                 val thumbnailUrl = song.thumbnailUrl
                 if (!thumbnailUrl.isNullOrEmpty()) {
                     try {
@@ -166,36 +175,78 @@ object SongDownloader {
                             val y = (originalBitmap.height - size) / 2
                             val croppedBitmap = Bitmap.createBitmap(originalBitmap, x, y, size, size)
                             
-                            val stream = ByteArrayOutputStream()
-                            croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream) // 95% Highest Quality JPEG
-                            artworkBytes = stream.toByteArray()
+                            val artFile = File(context.cacheDir, "temp_art_${videoId}.jpg")
+                            FileOutputStream(artFile).use { fos ->
+                                croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos)
+                            }
+                            artworkFile = artFile
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to fetch and crop thumbnail", e)
                     }
                 }
 
-                // Write metadata (Title, Artist, and Album Art) to .mp3 file
-                try {
-                    val audioFile = org.jaudiotagger.audio.AudioFileIO.read(outputFile)
-                    val tag = audioFile.tagOrCreateAndSetDefault
-                    
-                    val cleanAlbumStr = cleanAlbum(song.title)
-                    tag.setField(org.jaudiotagger.tag.FieldKey.TITLE, cleanTitleStr)
-                    tag.setField(org.jaudiotagger.tag.FieldKey.ARTIST, cleanArtistStr)
-                    tag.setField(org.jaudiotagger.tag.FieldKey.ALBUM, cleanAlbumStr)
-                    
-                    if (artworkBytes != null) {
-                        val artwork = org.jaudiotagger.tag.images.StandardArtwork()
-                        artwork.binaryData = artworkBytes
-                        artwork.mimeType = "image/jpeg"
-                        tag.deleteArtworkField()
-                        tag.setField(artwork)
+                // Prepare output file (Ogg Opus format)
+                val fileName = "$cleanTitleStr - $cleanArtistStr.opus"
+                val outputFile = AudioFileManager.createOutputFile(context, fileName)
+                val cleanAlbumStr = cleanAlbum(song.title)
+
+                // Encode cover art as METADATA_BLOCK_PICTURE (Opus/FLAC Vorbis Comment standard)
+                // Must be done BEFORE artworkFile is deleted.
+                val pictureBase64: String = artworkFile?.let { art ->
+                    try {
+                        val jpegBytes = art.readBytes()
+                        val mime = "image/jpeg"
+                        val mimeBytes = mime.toByteArray(Charsets.US_ASCII)
+                        val buf = java.nio.ByteBuffer.allocate(
+                            4 +                // picture type
+                            4 + mimeBytes.size + // MIME type length + MIME type string
+                            4 +                // description length (empty, 0 bytes follow)
+                            4 +                // width
+                            4 +                // height
+                            4 +                // color depth
+                            4 +                // indexed-color count
+                            4 + jpegBytes.size // data length + raw JPEG bytes
+                        ).order(java.nio.ByteOrder.BIG_ENDIAN)
+                        buf.putInt(3)             // picture type: front cover
+                        buf.putInt(mimeBytes.size)
+                        buf.put(mimeBytes)
+                        buf.putInt(0)             // description length (empty)
+                        buf.putInt(0)             // width
+                        buf.putInt(0)             // height
+                        buf.putInt(0)             // color depth
+                        buf.putInt(0)             // indexed-color count
+                        buf.putInt(jpegBytes.size)
+                        buf.put(jpegBytes)
+                        android.util.Base64.encodeToString(buf.array(), android.util.Base64.NO_WRAP)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "METADATA_BLOCK_PICTURE encoding failed", e)
+                        ""
                     }
-                    
-                    audioFile.commit()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to write tags to file", e)
+                } ?: ""
+
+                // Package using FFmpeg — metadata + cover art embedded as Vorbis Comments natively
+                val ffmpegArgs = FFmpegCommandBuilder.buildOpusPackageArgs(
+                    inputPath = tempDownloadFile.absolutePath,
+                    outputPath = outputFile.absolutePath,
+                    isOpusSource = isOpusSource,
+                    title = cleanTitleStr,
+                    artist = cleanArtistStr,
+                    album = cleanAlbumStr,
+                    pictureBase64 = pictureBase64
+                ).toTypedArray()
+
+                Log.d(TAG, "Executing FFmpeg packaging (${ffmpegArgs.size} args)")
+                val session = com.arthenica.ffmpegkit.FFmpegKit.executeWithArguments(ffmpegArgs)
+                val success = ReturnCode.isSuccess(session.returnCode)
+
+                // Clean up temp files
+                try { tempDownloadFile.delete() } catch (_: Exception) {}
+                try { artworkFile?.delete() } catch (_: Exception) {}
+
+                if (!success) {
+                    Log.e(TAG, "FFmpeg packaging failed with code ${session.returnCode}\n${session.allLogsAsString}")
+                    throw Exception("FFmpeg failed to remux audio stream to Opus container")
                 }
 
                 // Copy file to MediaStore and request a media scan
@@ -275,35 +326,90 @@ object SongDownloader {
         
         val cleanTitleStr = cleanTitle(song.title)
         val cleanArtistStr = cleanArtist(song.artist)
-        val fileName = "$cleanTitleStr - $cleanArtistStr.mp3"
-        val cleanName = fileName.replace(Regex("[^a-zA-Z0-9._\\s()\\[\\]-]"), "_")
-
-        // 1. Check legacy direct file path if pre-Q
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "SpatialFlow")
-            val file = File(downloadsDir, cleanName)
-            if (file.exists()) return true
-        }
-
-        // 2. Query MediaStore
-        val projection = arrayOf(MediaStore.Audio.Media._ID)
-        val selection = "${MediaStore.Audio.Media.DISPLAY_NAME} = ?"
-        val selectionArgs = arrayOf(cleanName)
         
-        try {
-            context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                null
-            )?.use { cursor ->
-                if (cursor.count > 0) return true
+        val fileNames = listOf(
+            "$cleanTitleStr - $cleanArtistStr.opus",
+            "$cleanTitleStr - $cleanArtistStr.mp3"
+        )
+
+        for (fileName in fileNames) {
+            val cleanName = fileName.replace(Regex("[^a-zA-Z0-9._\\s()\\[\\]-]"), "_")
+
+            // 1. Check legacy direct file path if pre-Q
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "SpatialFlow")
+                val file = File(downloadsDir, cleanName)
+                if (file.exists()) return true
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error checking if song is downloaded", e)
+
+            // 2. Query MediaStore
+            val projection = arrayOf(MediaStore.Audio.Media._ID)
+            val selection = "${MediaStore.Audio.Media.DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(cleanName)
+            
+            try {
+                context.contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    if (cursor.count > 0) return true
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking if song is downloaded", e)
+            }
         }
 
         return false
     }
+
+    fun getDownloadedSongUri(context: Context, song: SongItem): Uri? {
+        if (song.videoId.isNullOrEmpty()) return null
+        
+        val cleanTitleStr = cleanTitle(song.title)
+        val cleanArtistStr = cleanArtist(song.artist)
+        
+        val fileNames = listOf(
+            "$cleanTitleStr - $cleanArtistStr.opus",
+            "$cleanTitleStr - $cleanArtistStr.mp3"
+        )
+
+        for (fileName in fileNames) {
+            val cleanName = fileName.replace(Regex("[^a-zA-Z0-9._\\s()\\[\\]-]"), "_")
+
+            // 1. Check legacy direct file path if pre-Q
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "SpatialFlow")
+                val file = File(downloadsDir, cleanName)
+                if (file.exists()) return Uri.fromFile(file)
+            }
+
+            // 2. Query MediaStore
+            val projection = arrayOf(MediaStore.Audio.Media._ID)
+            val selection = "${MediaStore.Audio.Media.DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(cleanName)
+            
+            try {
+                context.contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                        val id = cursor.getLong(idIndex)
+                        return Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toString())
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error resolving downloaded song URI", e)
+            }
+        }
+        return null
+    }
+
 }

@@ -1,130 +1,95 @@
 package com.codetrio.spatialflow.ui.player
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.graphics.shapes.Morph
 import com.codetrio.spatialflow.R
 import com.codetrio.spatialflow.data.lyrics.LyricLine
 import com.codetrio.spatialflow.data.lyrics.LyricsResult
 import com.codetrio.spatialflow.model.SongItem
-import kotlin.math.hypot
-import kotlin.math.max
+import com.codetrio.spatialflow.ui.explore.MorphShape
+import com.codetrio.spatialflow.ui.player.canvas.CanvasArtwork
 
-/**
- * Optimized circular reveal modifier utilizing a remembered path and in-place reset/rebuild.
- * Ensures zero Path or Rect allocations on every single animation drawing frame!
- */
-private fun Modifier.circularRevealFrom(
-    progressProvider: () -> Float,
-    centerProvider: () -> Offset?
-): Modifier = this.drawWithCache {
-    val path = Path()
-    onDrawWithContent {
-        val progress = progressProvider()
-        val normalizedProgress = progress.coerceIn(0f, 1f)
-        if (normalizedProgress <= 0f) return@onDrawWithContent
-        if (normalizedProgress >= 0.999f) {
-            drawContent()
-            return@onDrawWithContent
-        }
-
-        val fallbackCenter = Offset(size.width * 0.9f, size.height * 0.72f)
-        val revealCenter = centerProvider() ?: fallbackCenter
-
-        val maxRadius = max(
-            max(
-                hypot(revealCenter.x.toDouble(), revealCenter.y.toDouble()),
-                hypot((size.width - revealCenter.x).toDouble(), revealCenter.y.toDouble())
-            ),
-            max(
-                hypot(revealCenter.x.toDouble(), (size.height - revealCenter.y).toDouble()),
-                hypot((size.width - revealCenter.x).toDouble(), (size.height - revealCenter.y).toDouble())
-            )
-        ).toFloat()
-
-        val radius = maxRadius * normalizedProgress
-        
-        path.reset() // Reuse existing Path object
-        path.addOval(
-            Rect(
-                left = revealCenter.x - radius,
-                top = revealCenter.y - radius,
-                right = revealCenter.x + radius,
-                bottom = revealCenter.y + radius
-            )
-        )
-
-        clipPath(path) {
-            this@onDrawWithContent.drawContent()
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun FullScreenLyricsOverlay(
     currentSong: SongItem?,
@@ -133,10 +98,9 @@ internal fun FullScreenLyricsOverlay(
     isLoading: Boolean,
     lyricsError: Throwable?,
     currentPositionProvider: () -> Int,
-    contentReady: Boolean,
-    backgroundBrush: Brush,
-    revealProgressProvider: () -> Float,
-    revealCenterProvider: () -> Offset?,
+    contentReady: Boolean = true,
+    playerBackgroundColor: Color,
+    canvasArtwork: CanvasArtwork? = null,
     contentColor: Color,
     contentSecondary: Color,
     dynamicAccentColor: Color,
@@ -146,10 +110,24 @@ internal fun FullScreenLyricsOverlay(
     providerResults: Map<String, LyricsResult>,
     selectedProvider: String?,
     onProviderSelected: (String) -> Unit,
+    isPlaying: Boolean = false,
+    playbackSpeed: Float = 1f,
+    onPlayPauseClick: () -> Unit = {},
+    duration: Long,
+    onCollapse: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val consumeClicks = remember { MutableInteractionSource() }
     var showProvidersSheet by remember { mutableStateOf(false) }
+    var isDraggingSeekbar by remember { mutableStateOf(false) }
+    var dragSeekProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var lastSeekTime by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var lastSeekPos by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var syncOffsetMs by remember { mutableStateOf(0L) }
+
+    val effectivePositionProvider = remember(currentPositionProvider, syncOffsetMs) {
+        { (currentPositionProvider() + syncOffsetMs).toInt().coerceAtLeast(0) }
+    }
 
     val view = LocalView.current
     DisposableEffect(view) {
@@ -161,21 +139,20 @@ internal fun FullScreenLyricsOverlay(
 
     Box(
         modifier = modifier
-            .circularRevealFrom(
-                progressProvider = revealProgressProvider,
-                centerProvider = revealCenterProvider
-            )
-            .background(backgroundBrush)
             .clickable(
                 interactionSource = consumeClicks,
                 indication = null,
                 onClick = {}
             )
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(vertical = 12.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(vertical = 12.dp)
+        ) {
             // Centered Title Header Layout
             Row(
                 modifier = Modifier
@@ -185,7 +162,18 @@ internal fun FullScreenLyricsOverlay(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Spacer(modifier = Modifier.size(48.dp))
+                if (onCollapse != null) {
+                    IconButton(onClick = onCollapse) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_keyboard_arrow_down),
+                            contentDescription = "Collapse Lyrics",
+                            tint = contentColor.copy(alpha = 0.8f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.size(48.dp))
+                }
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -210,16 +198,22 @@ internal fun FullScreenLyricsOverlay(
                         )
 
                         val activeResult = providerResults[selectedProvider] ?: providerResults.values
-                            .filter { it.confidence >= 0f }
+                            .filter { it.confidence >= 0f && it.hasLyrics() }
                             .maxWithOrNull(
-                                compareBy<LyricsResult> { it.providerName == "SyncLRC" }
+                                compareBy<LyricsResult> { it.isWordByWord }
+                                    .thenBy { it.isSynced }
+                                    .thenBy { it.providerName?.startsWith("BetterLyrics") == true }
+                                    .thenBy { it.providerName == "SyncLRC" }
                                     .thenBy { it.confidence }
                             )
+
+                        val isActuallyKaraoke = activeResult?.isWordByWord == true ||
+                                (!syncedLyrics.isNullOrEmpty() && syncedLyrics.any { !it.isInterlude && it.isWordByWord && it.words.isNotEmpty() })
 
                         val lyricTypeBadge = when {
                             activeResult == null -> null
                             !activeResult.hasLyrics() -> null
-                            activeResult.isWordByWord -> "Karaoke Lyrics"
+                            isActuallyKaraoke -> "Karaoke Lyrics"
                             activeResult.isSynced -> "Synced Lyrics"
                             else -> "Plain Lyrics"
                         }
@@ -284,12 +278,14 @@ internal fun FullScreenLyricsOverlay(
                         SyncedLyricsCompose(
                             onSeekTo = onSeekTo,
                             lyrics = syncedLyrics,
-                            currentPositionProvider = currentPositionProvider,
+                            currentPositionProvider = effectivePositionProvider,
                             contentColor = contentColor,
                             dynamicAccentColor = dynamicAccentColor,
                             currentSong = currentSong,
                             selectedProvider = selectedProvider,
                             providerResults = providerResults,
+                            isPlayingProvider = { isPlaying },
+                            playbackSpeedProvider = { playbackSpeed },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -316,7 +312,22 @@ internal fun FullScreenLyricsOverlay(
                     }
 
                     isLoading -> {
-                        CircularProgressIndicator(color = dynamicAccentColor)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            LinearWavyProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.6f)
+                                    .height(12.dp),
+                                color = dynamicAccentColor
+                            )
+                            Text(
+                                text = "Searching lyrics across providers...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = contentColor.copy(alpha = 0.7f)
+                            )
+                        }
                     }
 
                     lyricsError != null -> {
@@ -335,46 +346,327 @@ internal fun FullScreenLyricsOverlay(
                 }
             }
 
+            // Time Progress Bar
+            if (currentSong != null && contentReady) {
+                val currentPosition = currentPositionProvider()
+                val safeDur = if (duration > 0) duration.toFloat() else 1f
+                val progressRatio = (currentPosition.toFloat() / safeDur).coerceIn(0f, 1f)
+
+                val isWaitingForPlayer = remember(progressRatio, lastSeekTime, lastSeekPos) {
+                    val elapsed = System.currentTimeMillis() - lastSeekTime
+                    val diff = kotlin.math.abs(progressRatio - lastSeekPos)
+                    elapsed < 1000 && diff > 0.02f
+                }
+
+                val displayProgress = when {
+                    isDraggingSeekbar -> dragSeekProgress
+                    isWaitingForPlayer -> lastSeekPos
+                    else -> progressRatio
+                }
+
+                val currentPos = (displayProgress * safeDur).toLong()
+                
+                // Play/Pause morphing button state
+                val playPauseMorphProgress by animateFloatAsState(
+                    targetValue = if (isPlaying) 1f else 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "LyricsPlayPauseMorph"
+                )
+                val playPauseMorph = remember {
+                    Morph(MaterialShapes.Circle, MaterialShapes.Square)
+                }
+                val playPauseShape = MorphShape(playPauseMorph, playPauseMorphProgress)
+
+                val playInteractionSource = remember { MutableInteractionSource() }
+                val isPlayPressed by playInteractionSource.collectIsPressedAsState()
+                val pressScale by animateFloatAsState(
+                    targetValue = if (isPlayPressed) 0.88f else 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "LyricsPlayPressScale"
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Play/Pause button — same height as the seekbar container
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .graphicsLayer {
+                                scaleX = pressScale
+                                scaleY = pressScale
+                            }
+                            .clip(playPauseShape)
+                            .background(dynamicAccentColor)
+                            .clickable(
+                                interactionSource = playInteractionSource,
+                                indication = null
+                            ) { onPlayPauseClick() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    // Seekbar container
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(dynamicAccentColor.copy(alpha = 0.15f))
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = formatLyricsTime(currentPos.toLong()),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = contentColor.copy(alpha = 0.8f),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            
+                            WavyMusicSlider(
+                                value = displayProgress,
+                                onValueChange = { newValue ->
+                                    isDraggingSeekbar = true
+                                    dragSeekProgress = newValue
+                                },
+                                onValueChangeFinished = {
+                                    isDraggingSeekbar = false
+                                    lastSeekTime = System.currentTimeMillis()
+                                    lastSeekPos = dragSeekProgress
+                                    onSeekTo((dragSeekProgress * safeDur).toInt())
+                                },
+                                modifier = Modifier.weight(1f),
+                                activeTrackColor = dynamicAccentColor,
+                                inactiveTrackColor = contentColor.copy(alpha = 0.2f),
+                                thumbColor = dynamicAccentColor,
+                                thumbRadius = 6.dp,
+                                waveAmplitudeWhenPlaying = 3.dp,
+                                waveLength = 36.dp,
+                                thumbLineHeightWhenInteracting = 16.dp
+                            )
+                            
+                            Text(
+                                text = formatLyricsTime(duration),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = contentColor.copy(alpha = 0.8f),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+
             if (showProvidersSheet && contentReady) {
                 val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
                 ModalBottomSheet(
                     onDismissRequest = { showProvidersSheet = false },
                     sheetState = sheetState,
-                    containerColor = Color.Transparent,
-                    dragHandle = null
+                    containerColor = playerBackgroundColor,
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    dragHandle = { BottomSheetDefaults.DragHandle(color = contentColor.copy(alpha = 0.4f)) },
+                    scrimColor = Color.Black.copy(alpha = 0.3f)
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                            .background(backgroundBrush)
                             .navigationBarsPadding()
-                            .padding(top = 16.dp)
+                            .padding(bottom = 12.dp)
                     ) {
-                        Column {
-                            Box(
-                                modifier = Modifier
-                                    .width(32.dp)
-                                    .height(4.dp)
-                                    .clip(CircleShape)
-                                    .background(contentColor.copy(alpha = 0.4f))
-                                    .align(Alignment.CenterHorizontally)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
+                        UnifiedLyricsBottomSheetContent(
+                            providerResults = providerResults,
+                            selectedProvider = selectedProvider,
+                            syncOffsetMs = syncOffsetMs,
+                            onSyncOffsetChange = { syncOffsetMs = it },
+                            onProviderSelected = onProviderSelected,
+                            onRefindClick = onRetryLyrics,
+                            accentColor = dynamicAccentColor,
+                            contentColor = contentColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
-                            ProvidersSelector(
-                                providerResults = providerResults,
-                                selectedProvider = selectedProvider,
-                                onProviderSelected = onProviderSelected,
-                                onRefindClick = onRetryLyrics,
-                                accentColor = dynamicAccentColor,
-                                contentColor = contentColor,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun UnifiedLyricsBottomSheetContent(
+    providerResults: Map<String, LyricsResult>,
+    selectedProvider: String?,
+    syncOffsetMs: Long,
+    onSyncOffsetChange: (Long) -> Unit,
+    onProviderSelected: (String) -> Unit,
+    onRefindClick: () -> Unit,
+    accentColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    var activeTabIndex by rememberSaveable { mutableIntStateOf(0) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Expressive Material 3 Segmented Tab Switcher
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp)
+        ) {
+            SegmentedButton(
+                selected = activeTabIndex == 0,
+                onClick = { activeTabIndex = 0 },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                modifier = Modifier.weight(1f),
+                icon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_lyrics),
+                        contentDescription = "Providers",
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = accentColor.copy(alpha = 0.22f),
+                    activeContentColor = accentColor,
+                    inactiveContainerColor = contentColor.copy(alpha = 0.05f),
+                    inactiveContentColor = contentColor.copy(alpha = 0.7f)
+                )
+            ) {
+                Text(
+                    text = "Providers",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            SegmentedButton(
+                selected = activeTabIndex == 1,
+                onClick = { activeTabIndex = 1 },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                modifier = Modifier.weight(1f),
+                icon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_timer),
+                        contentDescription = "Sync Timing",
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = accentColor.copy(alpha = 0.22f),
+                    activeContentColor = accentColor,
+                    inactiveContainerColor = contentColor.copy(alpha = 0.05f),
+                    inactiveContentColor = contentColor.copy(alpha = 0.7f)
+                )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Sync Control",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (syncOffsetMs != 0L) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(accentColor)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = String.format(java.util.Locale.US, "%+.1fs", syncOffsetMs / 1000f),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black
                             )
                         }
                     }
+                }
+            }
+        }
+
+        // Tab Content with Seamless Animated Horizontal Transition
+        AnimatedContent(
+            targetState = activeTabIndex,
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInHorizontally(
+                        initialOffsetX = { width -> width },
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                    ) + fadeIn(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)))
+                        .togetherWith(
+                            slideOutHorizontally(
+                                targetOffsetX = { width -> -width },
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                            ) + fadeOut(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
+                        )
+                } else {
+                    (slideInHorizontally(
+                        initialOffsetX = { width -> -width },
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                    ) + fadeIn(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)))
+                        .togetherWith(
+                            slideOutHorizontally(
+                                targetOffsetX = { width -> width },
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                            ) + fadeOut(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
+                        )
+                }
+            },
+            label = "LyricsSheetTabTransition",
+            modifier = Modifier.fillMaxWidth()
+        ) { tabIndex ->
+            when (tabIndex) {
+                0 -> {
+                    ProvidersListTab(
+                        providerResults = providerResults,
+                        selectedProvider = selectedProvider,
+                        onProviderSelected = onProviderSelected,
+                        onRefindClick = onRefindClick,
+                        accentColor = accentColor,
+                        contentColor = contentColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                1 -> {
+                    SyncControlTab(
+                        syncOffsetMs = syncOffsetMs,
+                        onSyncOffsetChange = onSyncOffsetChange,
+                        accentColor = accentColor,
+                        contentColor = contentColor,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -383,7 +675,7 @@ internal fun FullScreenLyricsOverlay(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ProvidersSelector(
+private fun ProvidersListTab(
     providerResults: Map<String, LyricsResult>,
     selectedProvider: String?,
     onProviderSelected: (String) -> Unit,
@@ -392,58 +684,55 @@ private fun ProvidersSelector(
     contentColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val knownProviders = listOf(
-        "SyncLRC",
-        "Apple Music",
-        "Spotify",
-        "Musixmatch",
-        "LRCLIB",
-        "YouTube Music",
-        "YouTube (Paxsenix)"
-    )
-
-    val visibleProviders = knownProviders.filter { provider ->
-        val result = providerResults[provider]
-        val hasFinished = providerResults.containsKey(provider)
-        val hasData = result != null && result.hasLyrics() && result.confidence >= 0f
-        
-        // Show if it hasn't finished searching, has lyrics, or is the currently selected provider
-        !hasFinished || hasData || selectedProvider == provider
+    val knownProviders = remember {
+        listOf(
+            "Local Cache",
+            "EmbeddedID3",
+            "YouTube Music",
+            "YouLyPlus",
+            "YouTube Subtitle",
+            "Paxsenix: Apple Music",
+            "Paxsenix: Spotify",
+            "Paxsenix: Musixmatch",
+            "Paxsenix: Netease",
+            "Paxsenix: YouTube",
+            "SyncLRC",
+            "LrcLib",
+            "KuGou",
+            "BetterLyrics",
+            "SimpMusic"
+        )
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = "LYRICS PROVIDERS",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = contentColor.copy(alpha = 0.5f),
-            letterSpacing = 1.sp,
-            modifier = Modifier.padding(horizontal = 4.dp)
+    val sortedProviders = remember(providerResults, selectedProvider) {
+        knownProviders.sortedWith(
+            compareByDescending<String> { selectedProvider == it }
+                .thenByDescending { providerResults[it]?.hasLyrics() == true }
+                .thenByDescending { !providerResults.containsKey(it) }
         )
+    }
 
+    val isSearchingAny = knownProviders.any { !providerResults.containsKey(it) }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f, fill = false)
-                .animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
-                )
+                .heightIn(max = 340.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
         ) {
-            visibleProviders.forEachIndexed { index, provider ->
+            sortedProviders.forEachIndexed { index, provider ->
                 val result = providerResults[provider]
 
-                val isSelected = selectedProvider == provider || (selectedProvider == null && result != null && result.confidence >= 0f && result == providerResults.values.filter { it.confidence >= 0f }.maxWithOrNull(
-                    compareBy<LyricsResult> { it.providerName == "SyncLRC" }
+                val isSelected = selectedProvider == provider || (selectedProvider == null && result != null && result.confidence >= 0f && result == providerResults.values.filter { it.confidence >= 0f && it.hasLyrics() }.maxWithOrNull(
+                    compareBy<LyricsResult> { it.isWordByWord }
+                        .thenBy { it.isSynced }
+                        .thenBy { it.providerName?.startsWith("BetterLyrics") == true }
+                        .thenBy { it.providerName == "SyncLRC" }
                         .thenBy { it.confidence }
                 ))
 
@@ -455,36 +744,32 @@ private fun ProvidersSelector(
                 }
 
                 val supportingText = when {
+                    !providerResults.containsKey(provider) -> "Searching..."
                     result == null -> "Searching..."
-                    !result.hasLyrics() -> "No lyrics found"
-                    result.isWordByWord -> "Karaoke (Word-by-word)"
+                    !hasData -> "No lyrics found"
+                    result.isWordByWord -> "★ Karaoke (Word-by-word)"
                     result.isSynced -> "Synced (LRC)"
                     else -> "Plain Text"
                 }
 
-                val shape = getSegmentedShape(index = index, count = visibleProviders.size)
+                val shape = getSegmentedShape(index = index, count = sortedProviders.size)
 
                 val itemBgColor = when {
-                    isSelected -> accentColor.copy(alpha = 0.15f)
-                    hasData || result == null -> contentColor.copy(alpha = 0.06f)
+                    isSelected -> accentColor.copy(alpha = 0.18f)
+                    hasData -> contentColor.copy(alpha = 0.08f)
+                    !providerResults.containsKey(provider) -> contentColor.copy(alpha = 0.04f)
                     else -> contentColor.copy(alpha = 0.02f)
                 }
 
                 ListItem(
                     selected = isSelected,
-                    onClick = {
-                        if (hasData) {
-                            onProviderSelected(provider)
-                        }
-                    },
+                    onClick = { onProviderSelected(provider) },
                     supportingContent = {
                         Text(text = supportingText)
                     },
                     leadingContent = {
                         val iconRes = when (provider) {
-                            "SyncLRC" -> R.drawable.ic_lyrics
-                            "LRCLIB" -> R.drawable.ic_lyrics
-                            "YouTube Music" -> R.drawable.ic_youtube_music
+                            "YouTube Music", "Paxsenix: YouTube" -> R.drawable.ic_youtube_music
                             else -> R.drawable.ic_lyrics
                         }
                         Icon(
@@ -500,19 +785,24 @@ private fun ProvidersSelector(
                                 contentDescription = "Selected",
                                 modifier = Modifier.size(20.dp)
                             )
+                        } else if (!providerResults.containsKey(provider)) {
+                            androidx.compose.material3.CircularWavyProgressIndicator(
+                                color = accentColor.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     },
                     colors = ListItemDefaults.colors(
                         containerColor = itemBgColor,
                         selectedContainerColor = itemBgColor,
-                        contentColor = contentColor.copy(alpha = if (hasData || result == null) 0.9f else 0.4f),
+                        contentColor = contentColor.copy(alpha = if (hasData || !providerResults.containsKey(provider)) 0.95f else 0.4f),
                         selectedContentColor = accentColor,
-                        leadingContentColor = contentColor.copy(alpha = if (hasData || result == null) 0.8f else 0.4f),
+                        leadingContentColor = contentColor.copy(alpha = if (hasData || !providerResults.containsKey(provider)) 0.85f else 0.4f),
                         selectedLeadingContentColor = accentColor,
                         trailingContentColor = contentColor.copy(alpha = 0.8f),
                         selectedTrailingContentColor = accentColor,
-                        supportingContentColor = contentColor.copy(alpha = 0.6f),
-                        selectedSupportingContentColor = accentColor.copy(alpha = 0.7f),
+                        supportingContentColor = contentColor.copy(alpha = if (hasData) 0.75f else 0.45f),
+                        selectedSupportingContentColor = accentColor.copy(alpha = 0.85f),
                         disabledContainerColor = itemBgColor,
                         disabledContentColor = contentColor.copy(alpha = 0.3f),
                         disabledLeadingContentColor = contentColor.copy(alpha = 0.3f),
@@ -530,7 +820,14 @@ private fun ProvidersSelector(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        if (isSearchingAny) {
+            LinearWavyProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp),
+                color = accentColor
+            )
+        }
 
         val buttonInteractionSource = remember { MutableInteractionSource() }
         val buttonIsPressed by buttonInteractionSource.collectIsPressedAsState()
@@ -549,12 +846,12 @@ private fun ProvidersSelector(
             interactionSource = buttonInteractionSource,
             shape = RoundedCornerShape(buttonCornerRadius),
             colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                containerColor = accentColor,
-                contentColor = Color.Black
+                containerColor = contentColor.copy(alpha = 0.12f),
+                contentColor = contentColor
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(52.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -562,17 +859,154 @@ private fun ProvidersSelector(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_refresh),
-                    contentDescription = null,
+                    contentDescription = "Refind and Research",
                     modifier = Modifier.size(20.dp),
-                    tint = Color.Black
+                    tint = contentColor
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Refind Lyrics",
+                    text = "Refind & Re-search All Providers",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.Black
+                    color = contentColor
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SyncControlTab(
+    syncOffsetMs: Long,
+    onSyncOffsetChange: (Long) -> Unit,
+    accentColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // ── Top Header Badge: Dynamic Sync Status ──
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (syncOffsetMs != 0L) accentColor.copy(alpha = 0.15f) else contentColor.copy(alpha = 0.08f))
+                .padding(horizontal = 18.dp, vertical = 10.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_timer),
+                contentDescription = "Sync Offset",
+                tint = if (syncOffsetMs != 0L) accentColor else contentColor.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = if (syncOffsetMs == 0L) "0.0s (In Sync)" else String.format(java.util.Locale.US, "%+.2fs Offset", syncOffsetMs / 1000f),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (syncOffsetMs != 0L) accentColor else contentColor
+            )
+        }
+
+        // ── 100% Native Google Material 3 Connected Preset Button Row ──
+        // ── 100% Native Google Material 3 Connected Preset Button Row ──
+        val presetValues = remember {
+            listOf(
+                -500L to "-0.5s",
+                -100L to "-0.1s",
+                0L to "Reset", // Exact Center (Index 2)
+                100L to "+0.1s",
+                500L to "+0.5s"
+            )
+        }
+
+        // ── Connected Material 3 Expressive Presets Button Group (Clickable Action Buttons with Neighbor Pushing) ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            presetValues.forEachIndexed { index, (delta, label) ->
+                val isReset = delta == 0L
+                val interactionSource = remember { MutableInteractionSource() }
+                val isPressed by interactionSource.collectIsPressedAsState()
+
+                // Dynamic M3 Expressive Neighbor Pushing Weight Physics (Clickable Press Motion)
+                val targetWeight = if (isPressed) 1.55f else 1.00f
+                val animatedWeight by animateFloatAsState(
+                    targetValue = targetWeight,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "clickableNeighborPushingWeight"
+                )
+
+                // 100% Fixed Stable Connected Shapes
+                val buttonShape = when (index) {
+                    0 -> RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp, topEnd = 6.dp, bottomEnd = 6.dp)
+                    2 -> RoundedCornerShape(8.dp)
+                    4 -> RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp, topStart = 6.dp, bottomStart = 6.dp)
+                    else -> RoundedCornerShape(6.dp)
+                }
+
+                val containerColor = when {
+                    isReset && syncOffsetMs != 0L -> accentColor.copy(alpha = 0.18f)
+                    isPressed -> contentColor.copy(alpha = 0.14f)
+                    else -> contentColor.copy(alpha = 0.06f)
+                }
+
+                val itemContentColor = when {
+                    isReset && syncOffsetMs != 0L -> accentColor
+                    else -> contentColor
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        if (isReset) {
+                            onSyncOffsetChange(0L)
+                        } else {
+                            onSyncOffsetChange(syncOffsetMs + delta)
+                        }
+                    },
+                    interactionSource = interactionSource,
+                    shape = buttonShape,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = containerColor,
+                        contentColor = itemContentColor
+                    ),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .weight(animatedWeight)
+                        .height(44.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (isReset) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_refresh),
+                                contentDescription = "Reset",
+                                tint = itemContentColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (isReset && syncOffsetMs != 0L) FontWeight.ExtraBold else FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }
@@ -588,3 +1022,11 @@ private fun getSegmentedShape(index: Int, count: Int): androidx.compose.ui.graph
         else -> RoundedCornerShape(inner)
     }
 }
+
+private fun formatLyricsTime(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
+}
+

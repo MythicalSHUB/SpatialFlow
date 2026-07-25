@@ -12,7 +12,10 @@ data class LyricLine @JvmOverloads constructor(
     @JvmField val content: String,
     @JvmField val isInterlude: Boolean = false,
     @JvmField val isWordByWord: Boolean = false,
-    @JvmField val words: List<LyricWord> = emptyList()
+    @JvmField val words: List<LyricWord> = emptyList(),
+    @JvmField val isBackground: Boolean = false,
+    @JvmField val backgroundContent: String? = null,
+    @JvmField val backgroundWords: List<LyricWord> = emptyList()
 ) : Comparable<LyricLine> {
 
     override fun compareTo(other: LyricLine): Int {

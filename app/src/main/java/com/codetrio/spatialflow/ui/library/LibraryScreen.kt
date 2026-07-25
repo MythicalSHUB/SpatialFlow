@@ -48,6 +48,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Stable
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -158,6 +160,18 @@ enum class SortOrder {
     DURATION
 }
 
+@Stable
+sealed class DeviceSongEntry {
+    @Stable
+    data class Header(val title: String) : DeviceSongEntry()
+    @Stable
+    data class Song(
+        val song: SongItem,
+        val localIndex: Int,
+        val localCount: Int
+    ) : DeviceSongEntry()
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -173,20 +187,23 @@ fun LibraryScreen(
     val isPlayerExpanded by viewModel.isPlayerExpanded.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    var activeTab by remember { mutableStateOf("") }
-    var searchQuery by remember { mutableStateOf("") }
-    var sortOrder by remember { mutableStateOf(SortOrder.A_Z) }
-    var isRefreshing by remember { mutableStateOf(false) }
-
-    var showAccountScreen by remember { mutableStateOf(false) }
-    var showHistoryScreen by remember { mutableStateOf(false) }
-
     val accountViewModel = remember(fragmentActivity) {
         fragmentActivity?.let { ViewModelProvider(it)[AccountViewModel::class.java] }
     }
     val exploreViewModel = remember(fragmentActivity) {
         fragmentActivity?.let { ViewModelProvider(it)[ExploreViewModel::class.java] }
     }
+
+    val userProfile by accountViewModel?.userProfile?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
+    val isLoggedIn = remember(userProfile) { com.codetrio.spatialflow.data.innertube.AccountManager.isLoggedIn(context) }
+
+    var activeTab by remember(isLoggedIn) { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
+    var sortOrder by remember { mutableStateOf(SortOrder.A_Z) }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    var showAccountScreen by remember { mutableStateOf(false) }
+    var showHistoryScreen by remember { mutableStateOf(false) }
 
     val history by accountViewModel?.history?.collectAsStateWithLifecycle(emptyList()) ?: remember { mutableStateOf(emptyList()) }
     val currentOnlineSong by exploreViewModel?.currentOnlineSong?.collectAsStateWithLifecycle(null) ?: remember { mutableStateOf(null) }
@@ -315,7 +332,6 @@ fun LibraryScreen(
                                 )
                             }
 
-                            val userProfile by accountViewModel?.userProfile?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
                             if (userProfile?.avatarUrl != null) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(LocalContext.current)
@@ -344,15 +360,23 @@ fun LibraryScreen(
                 }
 
                 // Horizontal scroll chips row
-            val tabs = listOf(
-                "Playlists",
-                "Recap",
-                "Podcasts",
-                "Songs",
-                "Albums",
-                "Artists",
-                "Device Files"
-            )
+            val tabs = if (isLoggedIn) {
+                listOf(
+                    "Playlists",
+                    "Recap",
+                    "Podcasts",
+                    "Songs",
+                    "Albums",
+                    "Artists",
+                    "Device Files"
+                )
+            } else {
+                listOf(
+                    "Playlists",
+                    "Recap",
+                    "Device Files"
+                )
+            }
 
             Row(
                 modifier = Modifier
@@ -388,7 +412,7 @@ fun LibraryScreen(
                     .nestedScroll(nestedScrollConnection)
             ) {
                 when (activeTab) {
-                    "Playlists" -> PlaylistsTabContent(nestedScrollConnection, viewModel)
+                    "Playlists" -> PlaylistsTabContent(nestedScrollConnection, viewModel, isLoggedIn)
                     "Podcasts" -> PodcastsTabContent(nestedScrollConnection)
                     "Songs" -> SongsTabContent(nestedScrollConnection, viewModel)
                     "Albums" -> AlbumsTabContent(nestedScrollConnection)
@@ -534,10 +558,13 @@ fun LibraryScreen(
                                         }
                                     }
 
-                                    val list = mutableListOf<Any>()
+                                    val list = mutableListOf<DeviceSongEntry>()
                                     for ((header, groupSongs) in groups) {
-                                        list.add(header)
-                                        list.addAll(groupSongs)
+                                        list.add(DeviceSongEntry.Header(header))
+                                        val count = groupSongs.size
+                                        groupSongs.forEachIndexed { idx, song ->
+                                            list.add(DeviceSongEntry.Song(song, idx, count))
+                                        }
                                     }
                                     list
                                 }
@@ -562,177 +589,174 @@ fun LibraryScreen(
                                         contentPadding = PaddingValues(bottom = 160.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
-                                        itemsIndexed(sortedAndGrouped) { index, item ->
-                                            if (item is String) {
-                                                Text(
-                                                    text = item,
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 20.dp, vertical = 10.dp)
-                                                )
-                                            } else if (item is SongItem) {
-                                                val isPlaying = currentSong?.id == item.id
-                                                val isFav = favoriteIds.contains(item.id)
-
-                                                // Calculate segment position
-                                                var sectionStartIndex = index
-                                                for (i in index - 1 downTo 0) {
-                                                    if (sortedAndGrouped[i] is String) {
-                                                        sectionStartIndex = i + 1
-                                                        break
-                                                    }
-                                                    if (i == 0) sectionStartIndex = 0
+                                        items(
+                                            items = sortedAndGrouped,
+                                            key = { item ->
+                                                when (item) {
+                                                    is DeviceSongEntry.Header -> "header-${item.title}"
+                                                    is DeviceSongEntry.Song -> "song-${item.song.id}"
                                                 }
-
-                                                var count = 0
-                                                for (i in sectionStartIndex until sortedAndGrouped.size) {
-                                                    if (sortedAndGrouped[i] is String) break
-                                                    count++
+                                            }
+                                        ) { item ->
+                                            when (item) {
+                                                is DeviceSongEntry.Header -> {
+                                                    Text(
+                                                        text = item.title,
+                                                        style = MaterialTheme.typography.titleSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                                                    )
                                                 }
+                                                is DeviceSongEntry.Song -> {
+                                                    val songItem = item.song
+                                                    val isPlaying = currentSong?.id == songItem.id
+                                                    val isFav = favoriteIds.contains(songItem.id)
+                                                    val localIndex = item.localIndex
+                                                    val count = item.localCount
 
-                                                val localIndex = index - sectionStartIndex
-
-                                                // SwipeToDismissBox implementation
-                                                val dismissState = rememberSwipeToDismissBoxState(
-                                                    confirmValueChange = { dismissValue ->
-                                                        when (dismissValue) {
+                                                    // SwipeToDismissBox implementation
+                                                    val dismissState = rememberSwipeToDismissBoxState()
+                                                    LaunchedEffect(dismissState.currentValue) {
+                                                        when (dismissState.currentValue) {
                                                             SwipeToDismissBoxValue.StartToEnd -> {
-                                                                viewModel.addToQueueNext(item)
-                                                                scope.launch {
-                                                                    com.codetrio.spatialflow.ui.SnackbarController.showMessage("Playing next: ${item.title}")
-                                                                }
-                                                                false
+                                                                viewModel.addToQueueNext(songItem)
+                                                                com.codetrio.spatialflow.ui.SnackbarController.showMessage("Playing next: ${songItem.title}")
+                                                                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
                                                             }
                                                             SwipeToDismissBoxValue.EndToStart -> {
-                                                                viewModel.addToQueue(item)
-                                                                scope.launch {
-                                                                    com.codetrio.spatialflow.ui.SnackbarController.showMessage("Added to queue: ${item.title}")
-                                                                }
-                                                                false
+                                                                viewModel.addToQueue(songItem)
+                                                                com.codetrio.spatialflow.ui.SnackbarController.showMessage("Added to queue: ${songItem.title}")
+                                                                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
                                                             }
-                                                            else -> false
+                                                            SwipeToDismissBoxValue.Settled -> {}
                                                         }
                                                     }
-                                                )
 
-                                                SwipeToDismissBox(
-                                                    state = dismissState,
-                                                    backgroundContent = {
-                                                        val color = when (dismissState.dismissDirection) {
-                                                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
-                                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondaryContainer
-                                                            else -> Color.Transparent
-                                                        }
-                                                        val icon = when (dismissState.dismissDirection) {
-                                                            SwipeToDismissBoxValue.StartToEnd -> Icons.Default.SkipNext
-                                                            SwipeToDismissBoxValue.EndToStart -> Icons.AutoMirrored.Filled.QueueMusic
-                                                            else -> null
-                                                        }
-                                                        val alignment = when (dismissState.dismissDirection) {
-                                                            SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                                                            SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
-                                                            else -> Alignment.Center
-                                                        }
-                                                        val topRadius = if (localIndex == 0) 24.dp else 4.dp
-                                                        val bottomRadius = if (localIndex == count - 1) 24.dp else 4.dp
-                                                        val backgroundShape = RoundedCornerShape(
-                                                            topStart = topRadius, topEnd = topRadius,
-                                                            bottomStart = bottomRadius, bottomEnd = bottomRadius
-                                                        )
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .padding(horizontal = 8.dp, vertical = 1.dp)
-                                                                .clip(backgroundShape)
-                                                                .background(color.copy(alpha = dismissState.progress.coerceIn(0f, 1f))),
-                                                            contentAlignment = alignment
-                                                        ) {
-                                                            if (icon != null) {
-                                                                Icon(
-                                                                    imageVector = icon,
-                                                                    contentDescription = null,
-                                                                    modifier = Modifier
-                                                                        .padding(horizontal = 24.dp)
-                                                                        .graphicsLayer {
-                                                                            val p = dismissState.progress
-                                                                            scaleX = (p * 1.2f).coerceIn(0.6f, 1.1f)
-                                                                            scaleY = (p * 1.2f).coerceIn(0.6f, 1.1f)
-                                                                            alpha = p.coerceIn(0.3f, 1.0f)
-                                                                        },
-                                                                    tint = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                                                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                                                    } else {
-                                                                        MaterialTheme.colorScheme.onSecondaryContainer
-                                                                    }
-                                                                )
+                                                    SwipeToDismissBox(
+                                                        state = dismissState,
+                                                        backgroundContent = {
+                                                            val color = when (dismissState.dismissDirection) {
+                                                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                                                                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondaryContainer
+                                                                else -> Color.Transparent
                                                             }
-                                                        }
-                                                    },
-                                                    content = {
-                                                        SongListItem(
-                                                            song = item,
-                                                            isPlaying = isPlaying,
-                                                            isFavorite = isFav,
-                                                            localIndex = localIndex,
-                                                            localCount = count,
-                                                            onClick = {
-                                                                // Play clicked song, set the entire filtered songs list as queue
-                                                                viewModel.setSongList(filteredSongs)
-                                                                viewModel.playSong(item)
-                                                            },
-                                                            onLongClick = {
-                                                                val bs = SongActionsBottomSheet.newInstance(item)
-                                                                bs.setActionListener(object : SongActionsBottomSheet.ActionListener {
-                                                                    override fun onPlay(song: SongItem) {
-                                                                        viewModel.playSong(song)
-                                                                    }
-                                                                    override fun onPlayNext(song: SongItem) {
-                                                                        viewModel.addToQueueNext(song)
-                                                                        scope.launch {
-                                                                            com.codetrio.spatialflow.ui.SnackbarController.showMessage("Playing next: ${song.title}")
+                                                            val icon = when (dismissState.dismissDirection) {
+                                                                SwipeToDismissBoxValue.StartToEnd -> Icons.Default.SkipNext
+                                                                SwipeToDismissBoxValue.EndToStart -> Icons.AutoMirrored.Filled.QueueMusic
+                                                                else -> null
+                                                            }
+                                                            val alignment = when (dismissState.dismissDirection) {
+                                                                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                                                                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                                                                else -> Alignment.Center
+                                                            }
+                                                            val topRadius = if (localIndex == 0) 24.dp else 4.dp
+                                                            val bottomRadius = if (localIndex == count - 1) 24.dp else 4.dp
+                                                            val backgroundShape = RoundedCornerShape(
+                                                                topStart = topRadius, topEnd = topRadius,
+                                                                bottomStart = bottomRadius, bottomEnd = bottomRadius
+                                                            )
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxSize()
+                                                                    .padding(horizontal = 8.dp, vertical = 1.dp)
+                                                                    .clip(backgroundShape)
+                                                                    .background(color.copy(alpha = dismissState.progress.coerceIn(0f, 1f))),
+                                                                contentAlignment = alignment
+                                                            ) {
+                                                                if (icon != null) {
+                                                                    Icon(
+                                                                        imageVector = icon,
+                                                                        contentDescription = null,
+                                                                        modifier = Modifier
+                                                                            .padding(horizontal = 24.dp)
+                                                                            .graphicsLayer {
+                                                                                val p = dismissState.progress
+                                                                                scaleX = (p * 1.2f).coerceIn(0.6f, 1.1f)
+                                                                                scaleY = (p * 1.2f).coerceIn(0.6f, 1.1f)
+                                                                                alpha = p.coerceIn(0.3f, 1.0f)
+                                                                            },
+                                                                        tint = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+                                                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                                                        } else {
+                                                                            MaterialTheme.colorScheme.onSecondaryContainer
                                                                         }
-                                                                    }
-                                                                    override fun onAddToQueue(song: SongItem) {
-                                                                        viewModel.addToQueue(song)
-                                                                        scope.launch {
-                                                                            com.codetrio.spatialflow.ui.SnackbarController.showMessage("Added to queue: ${song.title}")
+                                                                    )
+                                                                }
+                                                            }
+                                                        },
+                                                        content = {
+                                                            val onSongClick = remember(songItem.id, filteredSongs) {
+                                                                {
+                                                                    viewModel.setSongList(filteredSongs)
+                                                                    viewModel.playSong(songItem)
+                                                                }
+                                                            }
+                                                            val onSongLongClick = remember(songItem.id) {
+                                                                {
+                                                                    val bs = SongActionsBottomSheet.newInstance(songItem)
+                                                                    bs.setActionListener(object : SongActionsBottomSheet.ActionListener {
+                                                                        override fun onPlay(song: SongItem) {
+                                                                            viewModel.playSong(song)
                                                                         }
-                                                                    }
-                                                                    override fun onDelete(song: SongItem) {
-                                                                        try {
-                                                                            val file = java.io.File(song.path)
-                                                                            if (file.exists()) file.delete()
-                                                                            // Rescan
+                                                                        override fun onPlayNext(song: SongItem) {
+                                                                            viewModel.addToQueueNext(song)
                                                                             scope.launch {
-                                                                                scanLocalFiles(context, viewModel)
+                                                                                com.codetrio.spatialflow.ui.SnackbarController.showMessage("Playing next: ${song.title}")
                                                                             }
-                                                                        } catch (_: Exception) {}
-                                                                    }
-                                                                    override fun onEdit(song: SongItem) {
-                                                                        onEditSong(song)
-                                                                    }
-                                                                    override fun onFavorite(song: SongItem, isFav: Boolean) {
-                                                                        viewModel.toggleFavorite(song.id)
-                                                                    }
-                                                                    override fun onShare(song: SongItem) {
-                                                                        try {
-                                                                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                                                                type = "audio/*"
-                                                                                putExtra(Intent.EXTRA_STREAM, song.contentUri)
-                                                                                putExtra(Intent.EXTRA_TEXT, "Listen to ${song.title}")
+                                                                        }
+                                                                        override fun onAddToQueue(song: SongItem) {
+                                                                            viewModel.addToQueue(song)
+                                                                            scope.launch {
+                                                                                com.codetrio.spatialflow.ui.SnackbarController.showMessage("Added to queue: ${song.title}")
                                                                             }
-                                                                            context.startActivity(Intent.createChooser(intent, "Share Song"))
-                                                                        } catch (_: Exception) {}
-                                                                    }
-                                                                })
-                                                                fragmentManager?.let { bs.show(it, "SongActionsBottomSheet") }
+                                                                        }
+                                                                        override fun onDelete(song: SongItem) {
+                                                                            try {
+                                                                                val file = java.io.File(song.path)
+                                                                                if (file.exists()) file.delete()
+                                                                                scope.launch {
+                                                                                    scanLocalFiles(context, viewModel)
+                                                                                }
+                                                                            } catch (_: Exception) {}
+                                                                        }
+                                                                        override fun onEdit(song: SongItem) {
+                                                                            onEditSong(song)
+                                                                        }
+                                                                        override fun onFavorite(song: SongItem, isFav: Boolean) {
+                                                                            viewModel.toggleFavorite(song.id)
+                                                                        }
+                                                                        override fun onShare(song: SongItem) {
+                                                                            try {
+                                                                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                                                                    type = "audio/*"
+                                                                                    putExtra(Intent.EXTRA_STREAM, song.contentUri)
+                                                                                    putExtra(Intent.EXTRA_TEXT, "Listen to ${song.title}")
+                                                                                }
+                                                                                context.startActivity(Intent.createChooser(intent, "Share Song"))
+                                                                            } catch (_: Exception) {}
+                                                                        }
+                                                                    })
+                                                                    fragmentManager?.let { bs.show(it, "SongActionsBottomSheet") }
+                                                                    Unit
+                                                                }
                                                             }
-                                                        )
-                                                    }
-                                                )
+
+                                                            SongListItem(
+                                                                song = songItem,
+                                                                isPlaying = isPlaying,
+                                                                isFavorite = isFav,
+                                                                localIndex = localIndex,
+                                                                localCount = count,
+                                                                onClick = onSongClick,
+                                                                onLongClick = onSongLongClick
+                                                            )
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -740,7 +764,11 @@ fun LibraryScreen(
                             }
                         }
                     }
-                    "" -> UnifiedLibraryContent(nestedScrollConnection)
+                    "" -> UnifiedLibraryContent(
+                        nestedScrollConnection = nestedScrollConnection,
+                        isLoggedIn = isLoggedIn,
+                        onSignInClick = { mainActivity?.navigateToGoogleSignIn() }
+                    )
                 }
             }
         }
@@ -960,8 +988,63 @@ fun SongListItem(
 
 @Composable
 private fun UnifiedLibraryContent(
-    nestedScrollConnection: androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+    nestedScrollConnection: androidx.compose.ui.input.nestedscroll.NestedScrollConnection,
+    isLoggedIn: Boolean,
+    onSignInClick: () -> Unit
 ) {
+    if (!isLoggedIn) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Access YouTube Music",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Sign in to access your online playlists, saved songs, listening history, and personalized recommendations.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = onSignInClick,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Text("Sign In", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val context = LocalContext.current
     val activity = remember { getActivityFromContext(context) as? androidx.fragment.app.FragmentActivity }
     val accountViewModel = remember(activity) {
@@ -1157,7 +1240,8 @@ private fun UnifiedLibraryCard(item: UnifiedLibraryItem) {
 @Composable
 private fun PlaylistsTabContent(
     nestedScrollConnection: androidx.compose.ui.input.nestedscroll.NestedScrollConnection,
-    viewModel: PlayerSharedViewModel
+    viewModel: PlayerSharedViewModel,
+    isLoggedIn: Boolean
 ) {
     val context = LocalContext.current
     val activity = remember { getActivityFromContext(context) as? androidx.fragment.app.FragmentActivity }
@@ -1175,8 +1259,10 @@ private fun PlaylistsTabContent(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var selectedLocalPlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
 
-    LaunchedEffect(Unit) {
-        accountViewModel?.refreshAll()
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) {
+            accountViewModel?.refreshAll()
+        }
     }
 
     if (showCreatePlaylistDialog) {
@@ -1308,43 +1394,45 @@ private fun PlaylistsTabContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        if (isLoggedIn) {
+            Spacer(modifier = Modifier.height(24.dp))
 
-        Text(
-            "YT Music Playlists",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+            Text(
+                "YT Music Playlists",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-        if (onlinePlaylists.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("No online playlists found", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(bottom = 160.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f)
-                    .nestedScroll(nestedScrollConnection)
-            ) {
-                items(onlinePlaylists) { playlist ->
-                    OnlinePlaylistCard(playlist, onClick = {
-                        exploreViewModel?.cameFromLibrary = true
-                        exploreViewModel?.loadPlaylist(playlist.playlistId)
-                        navigateToExplore(activity)
-                    })
+            if (onlinePlaylists.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No online playlists found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(bottom = 160.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .nestedScroll(nestedScrollConnection)
+                ) {
+                    items(onlinePlaylists) { playlist ->
+                        OnlinePlaylistCard(playlist, onClick = {
+                            exploreViewModel?.cameFromLibrary = true
+                            exploreViewModel?.loadPlaylist(playlist.playlistId)
+                            navigateToExplore(activity)
+                        })
+                    }
                 }
             }
         }
@@ -2597,67 +2685,8 @@ private fun RecapTabContent(
 }
 
 // Background scanner helper
-@RequiresApi(Build.VERSION_CODES.Q)
 private suspend fun scanLocalFiles(context: Context, viewModel: PlayerSharedViewModel) {
-    withContext(Dispatchers.IO) {
-        val songs = ArrayList<SongItem>()
-        try {
-            val proj = arrayOf(
-                android.provider.MediaStore.Audio.Media._ID,
-                android.provider.MediaStore.Audio.Media.TITLE,
-                android.provider.MediaStore.Audio.Media.ARTIST,
-                android.provider.MediaStore.Audio.Media.ALBUM_ID,
-                android.provider.MediaStore.Audio.Media.DATA,
-                android.provider.MediaStore.Audio.Media.DURATION,
-                android.provider.MediaStore.Audio.Media.DATE_ADDED
-            )
-            val prefs = context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
-            val hiddenFolders = (prefs.getString("hidden_folders", "") ?: "").split("||").filter { it.isNotEmpty() }
-            val ignoreShort = prefs.getBoolean("ignore_short_audio", false)
-            val minDurationMs = if (ignoreShort) prefs.getFloat("ignore_short_audio_duration", 30f).toLong() * 1000L else 0L
-
-            context.contentResolver.query(
-                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                proj,
-                "${android.provider.MediaStore.Audio.Media.IS_MUSIC} != 0",
-                null,
-                "${android.provider.MediaStore.Audio.Media.TITLE} ASC"
-            )?.use { c ->
-                val idCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media._ID)
-                val titleCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE)
-                val artistCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST)
-                val albumCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ALBUM_ID)
-                val dataCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
-                val durCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DURATION)
-                val dateCol = c.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATE_ADDED)
-                while (c.moveToNext()) {
-                    val path = c.getString(dataCol)
-                    if (path != null && hiddenFolders.any { path.startsWith(it) }) {
-                        continue
-                    }
-                    val duration = c.getLong(durCol)
-                    if (ignoreShort && duration < minDurationMs) {
-                        continue
-                    }
-
-                    songs.add(
-                        SongItem(
-                            c.getLong(idCol),
-                            c.getString(titleCol),
-                            c.getString(artistCol),
-                            c.getLong(albumCol),
-                            c.getString(dataCol),
-                            c.getLong(durCol),
-                            c.getLong(dateCol)
-                        )
-                    )
-                }
-            }
-        } catch (_: Exception) {}
-        withContext(Dispatchers.Main) {
-            viewModel.setLocalSongs(songs)
-        }
-    }
+    viewModel.rescanLocalFiles()
 }
 
 private fun getActivityFromContext(context: Context): Activity? {
@@ -2672,3 +2701,4 @@ private fun getActivityFromContext(context: Context): Activity? {
 private fun navigateToExplore(activity: Activity?) {
     (activity as? MainActivity)?.showArtistPage(null, null)
 }
+

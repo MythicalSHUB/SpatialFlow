@@ -16,7 +16,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.graphics.Color
+import androidx.palette.graphics.Palette
+import android.graphics.drawable.BitmapDrawable
+import coil.imageLoader
+import coil.request.SuccessResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.CloudSync
@@ -60,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.codetrio.spatialflow.data.innertube.AccountManager
 import com.codetrio.spatialflow.data.innertube.OnlineSong
 import com.codetrio.spatialflow.data.innertube.UserProfile
@@ -135,9 +145,65 @@ fun AccountSettingsSection(
     var syncEnabled by remember { mutableStateOf(AccountManager.isSyncEnabled(context)) }
     var showTokenAlert by remember { mutableStateOf(false) }
 
+    var extractedColor by remember { mutableStateOf<Color?>(null) }
+    LaunchedEffect(userProfile?.avatarUrl) {
+        val url = userProfile?.avatarUrl
+        if (!url.isNullOrEmpty()) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val loader = context.imageLoader
+                    val request = ImageRequest.Builder(context)
+                        .data(url)
+                        .allowHardware(false)
+                        .build()
+                    val result = loader.execute(request)
+                    if (result is SuccessResult) {
+                        val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
+                        if (bitmap != null) {
+                            val palette = Palette.from(bitmap).generate()
+                            val vibrantColor = palette.getVibrantColor(0)
+                            val dominantColor = palette.getDominantColor(0)
+                            val darkVibrantColor = palette.getDarkVibrantColor(0)
+                            val mutedColor = palette.getMutedColor(0)
+                            val lightVibrantColor = palette.getLightVibrantColor(0)
+                            
+                            val extractedInt = if (vibrantColor != 0) vibrantColor
+                                               else if (dominantColor != 0) dominantColor
+                                               else if (darkVibrantColor != 0) darkVibrantColor
+                                               else if (mutedColor != 0) mutedColor
+                                               else if (lightVibrantColor != 0) lightVibrantColor
+                                               else 0
+                            if (extractedInt != 0) {
+                                extractedColor = Color(extractedInt)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("AccountColor", "Failed to extract color: ${e.message}")
+                }
+            }
+        } else {
+            extractedColor = null
+        }
+    }
+
+    val backdropColor = extractedColor ?: MaterialTheme.colorScheme.primaryContainer
+    val animatedBackdropColor by animateColorAsState(
+        targetValue = backdropColor,
+        animationSpec = tween(1000),
+        label = "backdrop_color"
+    )
+
+    // Use the shared helper — expressive timing, full MaterialShapes library, rotation
+    val avatarMorphState = rememberExpressiveShapeMorph(
+        segmentDurationMillis = 1000,
+        rotationDurationMillis = 12000
+    )
+    val avatarMorphShape = avatarMorphState.morphShape
+
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -146,26 +212,37 @@ fun AccountSettingsSection(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
-                    modifier = Modifier
-                        .size(112.dp)
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    modifier = Modifier.size(200.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isLoggedIn && !userProfile?.avatarUrl.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = userProfile!!.avatarUrl,
-                            contentDescription = "Profile Picture",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Icon(
-                            Icons.Default.PersonOutline,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(avatarMorphShape)
+                            .background(animatedBackdropColor.copy(alpha = 0.6f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isLoggedIn && !userProfile?.avatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = userProfile.avatarUrl,
+                                contentDescription = "Profile Picture",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.PersonOutline,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(20.dp))

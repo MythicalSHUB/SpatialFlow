@@ -1,11 +1,14 @@
 package com.codetrio.spatialflow.data.innertube
 
+import androidx.compose.runtime.Stable
+
 /**
  * Data models for YouTube Music online content.
  * These are separate from the local SongItem to cleanly handle online vs offline songs.
  */
 
 /** Represents an online song from YouTube Music */
+@Stable
 data class OnlineSong(
     val videoId: String,
     val title: String,
@@ -16,10 +19,12 @@ data class OnlineSong(
     val duration: String? = null,       // "3:45" formatted
     val durationMs: Long = 0,           // milliseconds
     val thumbnailUrl: String? = null,
+    val animatedThumbnailUrl: String? = null,
     val isExplicit: Boolean = false
 )
 
 /** Represents an online album */
+@Stable
 data class OnlineAlbum(
     val browseId: String,
     val playlistId: String? = null,
@@ -31,6 +36,7 @@ data class OnlineAlbum(
 )
 
 /** Represents an online artist */
+@Stable
 data class OnlineArtist(
     val browseId: String,
     val title: String,
@@ -42,26 +48,63 @@ data class OnlineArtist(
 )
 
 /** Lightweight artist reference (used in songs/albums) */
+@Stable
 data class OnlineArtistRef(
     val name: String,
     val id: String? = null
 )
 
-/** Represents an online playlist */
+@Stable
 data class OnlinePlaylist(
     val playlistId: String,
     val title: String,
     val author: OnlineArtistRef? = null,
     val songCount: String? = null,
-    val thumbnailUrl: String? = null
+    val thumbnailUrl: String? = null,
+    val color: Long? = null
 )
 
 /** Union type for search results */
+@Stable
 sealed class SearchItem {
-    data class Song(val song: OnlineSong) : SearchItem()
-    data class Album(val album: OnlineAlbum) : SearchItem()
-    data class Artist(val artist: OnlineArtist) : SearchItem()
-    data class Playlist(val playlist: OnlinePlaylist) : SearchItem()
+    @Stable
+    data class TopResult(
+        val title: String,
+        val subtitle: String,
+        val itemType: String,
+        val thumbnailUrl: String?,
+        val song: OnlineSong? = null,
+        val album: OnlineAlbum? = null,
+        val artist: OnlineArtist? = null,
+        val playlist: OnlinePlaylist? = null
+    ) : SearchItem()
+
+    @Stable
+    data class Header(val title: String) : SearchItem()
+
+    @Stable
+    data class Song(
+        val song: OnlineSong,
+        val badge: String? = null,
+        val typeText: String? = null
+    ) : SearchItem()
+
+    @Stable
+    data class Album(
+        val album: OnlineAlbum,
+        val badge: String? = null
+    ) : SearchItem()
+
+    @Stable
+    data class Artist(
+        val artist: OnlineArtist
+    ) : SearchItem()
+
+    @Stable
+    data class Playlist(
+        val playlist: OnlinePlaylist,
+        val badge: String? = null
+    ) : SearchItem()
 }
 
 /** Search result container */
@@ -85,6 +128,7 @@ data class PlayerResult(
     val title: String,
     val artist: String,
     val thumbnailUrl: String?,
+    val animatedThumbnailUrl: String? = null,
     val durationMs: Long,
     val streams: List<StreamData>,
     val playbackUrl: String? = null,
@@ -93,6 +137,7 @@ data class PlayerResult(
 )
 
 /** Home feed section (carousel) */
+@Stable
 data class HomeSection(
     val title: String,
     val items: List<SearchItem>,
@@ -101,6 +146,7 @@ data class HomeSection(
 )
 
 /** Home page data */
+@Stable
 data class HomePage(
     val sections: List<HomeSection>,
     val continuation: String? = null,
@@ -108,6 +154,7 @@ data class HomePage(
 )
 
 /** Album page data */
+@Stable
 data class AlbumPage(
     val album: OnlineAlbum,
     val songs: List<OnlineSong>,
@@ -115,6 +162,7 @@ data class AlbumPage(
 )
 
 /** Artist page data */
+@Stable
 data class ArtistPage(
     val artist: OnlineArtist,
     val sections: List<HomeSection>,
@@ -122,6 +170,7 @@ data class ArtistPage(
 )
 
 /** Playlist page data */
+@Stable
 data class PlaylistPage(
     val playlist: OnlinePlaylist,
     val songs: List<OnlineSong>,
@@ -143,5 +192,21 @@ data class UserProfile(
     val email: String? = null,
     val avatarUrl: String? = null
 )
+
+/** Represents an autoplay recommendation chip */
+data class AutoplayChip(
+    val title: String,
+    val params: String?,
+    val playlistId: String?,
+    val isSelected: Boolean,
+    val videoId: String? = null
+)
+
+/** Represents the results of a related/next API call */
+data class RelatedSongsResult(
+    val songs: List<OnlineSong>,
+    val chips: List<AutoplayChip>
+)
+
 
 

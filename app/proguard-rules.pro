@@ -79,3 +79,20 @@
 -dontwarn java.beans.**
 -dontwarn org.mozilla.javascript.**
 -dontwarn javax.script.**
+
+# ============ SLF4J ============
+-dontwarn org.slf4j.**
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# ============ Ktor ============
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+
+# ============ Kotlinx Serialization ============
+-keepattributes *Annotation*, InnerClasses, Signature, Exceptions, RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+-keepclassmembernames class * {
+    @kotlinx.serialization.SerialName <fields>;
+}
+
+# ============ Media3 / ExoPlayer ============
+-dontwarn androidx.media3.**

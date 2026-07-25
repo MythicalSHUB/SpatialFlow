@@ -2,6 +2,9 @@
 
 package com.codetrio.spatialflow.ui.theme
 
+import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.runtime.CompositionLocalProvider
 import android.app.Activity
 import android.content.ContextWrapper
 import android.content.SharedPreferences
@@ -72,6 +75,7 @@ fun <T> SharedPreferences.observeKey(key: String, defaultValue: T): State<T> {
 fun SpatialFlowTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicAlbumColor: Int? = null,
+    windowSizeClass: WindowSizeClass? = null,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -79,7 +83,7 @@ fun SpatialFlowTheme(
         context.getSharedPreferences("AppSettings", android.content.Context.MODE_PRIVATE)
     }
     val amoledEnabled by prefs.observeKey("amoled_black", false)
-    val albumArtThemeEnabled by prefs.observeKey("dynamic_album_theme", false)
+    val albumArtThemeEnabled by prefs.observeKey("dynamic_album_theme", true)
 
     val colorScheme = remember(darkTheme, amoledEnabled, albumArtThemeEnabled, dynamicAlbumColor) {
         val baseScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -254,12 +258,20 @@ fun SpatialFlowTheme(
         }
     }
 
-    MaterialExpressiveTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        motionScheme = MotionScheme.expressive(),
-        content = content
-    )
+    val dimens = when (windowSizeClass?.widthSizeClass) {
+        WindowWidthSizeClass.Medium -> MediumDimens
+        WindowWidthSizeClass.Expanded -> ExpandedDimens
+        else -> CompactDimens
+    }
+
+    CompositionLocalProvider(LocalDimens provides dimens) {
+        MaterialExpressiveTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            motionScheme = MotionScheme.expressive(),
+            content = content
+        )
+    }
 }
 
 

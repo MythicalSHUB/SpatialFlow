@@ -19,7 +19,7 @@ class LrcLibProvider(private val api: LrcLibApi) : LyricsProvider {
         private const val TAG = "LrcLibProvider"
     }
 
-    override fun getName(): String = "LRCLIB"
+    override fun getName(): String = "LrcLib"
 
     override fun getPriority(): Int = 1 // Highest priority — best synced lyrics source
 

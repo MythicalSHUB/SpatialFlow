@@ -22,12 +22,16 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -35,8 +39,60 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 enum class DetailType {
-    ALBUM, PLAYLIST, ARTIST, SECTION
+    ALBUM, PLAYLIST, ARTIST, SECTION, GENRES, MOOD
 }
+
+@Stable
+data class MoodDetail(
+    val moodName: String,
+    val sections: List<HomeSection>
+)
+
+@Stable
+data class SearchUiState(
+    val searchQuery: String = "",
+    val searchResults: List<SearchItem> = emptyList(),
+    val suggestions: List<String> = emptyList(),
+    val isSearching: Boolean = false,
+    val isLoadingSuggestions: Boolean = false,
+    val searchHistory: List<String> = emptyList(),
+    val searchFilter: SearchFilter? = null
+)
+
+@Stable
+data class HomeUiState(
+    val homeSections: List<HomeSection> = emptyList(),
+    val isLoadingHome: Boolean = false,
+    val currentMood: String? = null,
+    val homeMoods: List<String> = emptyList(),
+    val isRefreshing: Boolean = false,
+    val isLoadingMoreHome: Boolean = false,
+    val pinnedSpeedDialIds: Set<String> = emptySet(),
+    val notInterestedIds: Set<String> = emptySet(),
+    val error: String? = null
+)
+
+@Stable
+data class DetailUiState(
+    val albumDetail: AlbumPage? = null,
+    val artistDetail: ArtistPage? = null,
+    val playlistDetail: PlaylistPage? = null,
+    val sectionDetail: HomeSection? = null,
+    val moodDetail: MoodDetail? = null,
+    val genresSections: List<HomeSection> = emptyList(),
+    val isLoadingDetail: Boolean = false,
+    val detailStack: List<DetailType> = emptyList()
+)
+
+@Stable
+data class PlaybackUiState(
+    val isLoadingStream: Boolean = false,
+    val currentOnlineSong: OnlineSong? = null,
+    val streamUrl: String? = null,
+    val streamError: String? = null,
+    val onlineQueue: List<OnlineSong> = emptyList(),
+    val currentOnlineIndex: Int = -1
+)
 
 /**
  * ViewModel for the Explore (Online Music) tab.
@@ -52,6 +108,27 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
     private val _uiState = MutableStateFlow(ExploreUiState())
     val uiState: StateFlow<ExploreUiState> = _uiState.asStateFlow()
+
+    // Granular 4-way UI state flows for UI performance optimization
+    val searchState: StateFlow<SearchUiState> = _uiState
+        .map { SearchUiState(it.searchQuery, it.searchResults, it.suggestions, it.isSearching, it.isLoadingSuggestions, it.searchHistory, it.searchFilter) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SearchUiState())
+
+    val homeState: StateFlow<HomeUiState> = _uiState
+        .map { HomeUiState(it.homeSections, it.isLoadingHome, it.currentMood, it.homeMoods, it.isRefreshing, it.isLoadingMoreHome, it.pinnedSpeedDialIds, it.notInterestedIds, it.error) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, HomeUiState())
+
+    val detailState: StateFlow<DetailUiState> = _uiState
+        .map { DetailUiState(it.albumDetail, it.artistDetail, it.playlistDetail, it.sectionDetail, it.moodDetail, it.genresSections, it.isLoadingDetail, it.detailStack) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, DetailUiState())
+
+    val playbackState: StateFlow<PlaybackUiState> = _uiState
+        .map { PlaybackUiState(it.isLoadingStream, it.currentOnlineSong, it.streamUrl, it.streamError, it.onlineQueue, it.currentOnlineIndex) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, PlaybackUiState())
 
     private val _subscriptionChanged = MutableStateFlow(false)
     val subscriptionChanged = _subscriptionChanged.asStateFlow()
@@ -92,6 +169,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     val isLoadingStream: StateFlow<Boolean> = uiState
         .map { it.isLoadingStream }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+
 
     private var searchContinuation: String? = null
     private var homeContinuationToken: String? = null
@@ -145,6 +224,10 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
     private fun addToSearchHistory(query: String) {
         if (query.isBlank()) return
+        val appSettings = getApplication<android.app.Application>().getSharedPreferences("AppSettings", android.content.Context.MODE_PRIVATE)
+        if (appSettings.getBoolean("pause_history", false)) {
+            return
+        }
         val current = _uiState.value.searchHistory.toMutableList()
         current.remove(query) // Remove duplicate
         current.add(0, query) // Add to top
@@ -154,6 +237,7 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 putString("search_history_list", trimmed.joinToString("\n"))
             }
     }
+
 
     fun removeFromSearchHistory(query: String) {
         val current = _uiState.value.searchHistory.toMutableList()
@@ -176,9 +260,69 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private val _playbackTriggerEvent = MutableSharedFlow<Unit>(replay = 0, extraBufferCapacity = 1)
     val playbackTriggerEvent = _playbackTriggerEvent.asSharedFlow()
 
+    private val _events = Channel<ExploreEvent>()
+    val events: Flow<ExploreEvent> = _events.receiveAsFlow()
+
+    fun sendEvent(event: ExploreEvent) {
+        viewModelScope.launch {
+            _events.send(event)
+        }
+    }
+
+    fun onAction(action: ExploreAction) {
+        when (action) {
+            is ExploreAction.OnSearchQueryChange -> setSearchQuery(action.query)
+            is ExploreAction.OnSearchFilterSelect -> setSearchFilter(action.filter)
+            is ExploreAction.OnSearchSubmit -> search(action.query)
+            is ExploreAction.OnClearSearch -> clearSearch()
+            is ExploreAction.OnSongClick -> playOnlineSong(action.song)
+            is ExploreAction.OnSongWithQueueClick -> playOnlineSongWithQueue(action.song, action.queue, action.index)
+            is ExploreAction.OnAlbumClick -> loadAlbum(action.album.browseId)
+            is ExploreAction.OnAlbumBrowseIdClick -> loadAlbum(action.browseId)
+            is ExploreAction.OnArtistClick -> loadArtist(action.artist.browseId)
+            is ExploreAction.OnArtistBrowseIdClick -> loadArtist(action.browseId)
+            is ExploreAction.OnPlaylistClick -> loadPlaylist(action.playlist.playlistId)
+            is ExploreAction.OnPlaylistIdClick -> loadPlaylist(action.playlistId)
+            is ExploreAction.OnSectionClick -> loadSectionDetails(action.browseId, action.params, action.title)
+            is ExploreAction.OnMoodClick -> loadMood(action.title, action.browseId, action.params)
+            is ExploreAction.OnSetMood -> setMood(action.mood)
+            is ExploreAction.OnRefreshHomeFeed -> refreshHomeFeed()
+            is ExploreAction.OnLoadMoreHomeSections -> loadMoreHomeSections()
+            is ExploreAction.OnLoadMoreSearchResults -> loadMoreResults()
+            is ExploreAction.OnPopDetail -> popDetailStack()
+            is ExploreAction.OnResetToHome -> resetToHome()
+            is ExploreAction.OnHandleDeepLink -> handleDeepLink(action.url)
+        }
+    }
+
     private var searchJob: Job? = null
     private var suggestJob: Job? = null
 
+    private fun handleDeepLink(urlString: String) {
+        try {
+            val uri = android.net.Uri.parse(urlString)
+            val host = uri.host ?: return
+            
+            var videoId: String? = null
+            if (host.contains("youtu.be")) {
+                videoId = uri.lastPathSegment
+            } else if (host.contains("youtube.com")) {
+                videoId = uri.getQueryParameter("v")
+            }
+            
+            val playlistId = uri.getQueryParameter("list")
+
+            if (videoId != null) {
+                startRadio(videoId)
+            } else if (playlistId != null) {
+                loadPlaylist(playlistId)
+            } else {
+                sendEvent(ExploreEvent.ShowSnackbar(com.codetrio.spatialflow.ui.UiText.DynamicString("Invalid YouTube link")))
+            }
+        } catch (e: Exception) {
+            sendEvent(ExploreEvent.ShowSnackbar(com.codetrio.spatialflow.ui.UiText.DynamicString("Failed to parse link")))
+        }
+    }
 
     // ========== Search Methods ==========
 
@@ -187,7 +331,7 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         if (query.length >= 2) {
             fetchSuggestions(query)
         } else {
-            _uiState.update { it.copy(suggestions = emptyList()) }
+            _uiState.update { it.copy(suggestions = emptyList(), isLoadingSuggestions = false) }
         }
     }
 
@@ -223,6 +367,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                     val seenIds = mutableSetOf<String>()
                     val uniqueItems = searchResult.items.filter { item ->
                         val id = when (item) {
+                            is SearchItem.TopResult -> "topresult-${item.title}"
+                            is SearchItem.Header -> "header-${item.title}"
                             is SearchItem.Song -> "song-${item.song.videoId}"
                             is SearchItem.Album -> "album-${item.album.browseId}"
                             is SearchItem.Artist -> "artist-${item.artist.browseId}"
@@ -273,6 +419,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                         val currentList = state.searchResults
                         val seenIds = currentList.map { item ->
                             when (item) {
+                                is SearchItem.TopResult -> "topresult-${item.title}"
+                                is SearchItem.Header -> "header-${item.title}"
                                 is SearchItem.Song -> "song-${item.song.videoId}"
                                 is SearchItem.Album -> "album-${item.album.browseId}"
                                 is SearchItem.Artist -> "artist-${item.artist.browseId}"
@@ -282,6 +430,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
                         val uniqueNewItems = searchResult.items.filter { item ->
                             val id = when (item) {
+                                is SearchItem.TopResult -> "topresult-${item.title}"
+                                is SearchItem.Header -> "header-${item.title}"
                                 is SearchItem.Song -> "song-${item.song.videoId}"
                                 is SearchItem.Album -> "album-${item.album.browseId}"
                                 is SearchItem.Artist -> "artist-${item.artist.browseId}"
@@ -308,14 +458,19 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private fun fetchSuggestions(query: String) {
         suggestJob?.cancel()
         suggestJob = viewModelScope.launch {
-            delay(300.milliseconds) // Debounce
+            delay(150.milliseconds) // Reduced debounce for instant feel
+            _uiState.update { it.copy(isLoadingSuggestions = true) }
             try {
                 val result = YouTubeMusic.searchSuggestions(query)
                 result.onSuccess { suggestions ->
-                    _uiState.update { it.copy(suggestions = suggestions.take(8)) }
+                    _uiState.update { it.copy(suggestions = suggestions.take(8), isLoadingSuggestions = false) }
+                }
+                result.onFailure {
+                    _uiState.update { it.copy(isLoadingSuggestions = false) }
                 }
             } catch (_: Exception) {
                 // Silently ignore suggestion errors
+                _uiState.update { it.copy(isLoadingSuggestions = false) }
             }
         }
     }
@@ -326,7 +481,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 searchQuery = "",
                 searchResults = emptyList(),
                 suggestions = emptyList(),
-                searchFilter = null
+                searchFilter = null,
+                isLoadingSuggestions = false
             )
         }
         searchContinuation = null
@@ -334,52 +490,7 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
 
     // ========== Home Feed ==========
 
-    private suspend fun getPersonalizedSections(): List<HomeSection> {
-        val historyString = prefs.getString("recent_artists_list", "") ?: ""
-        if (historyString.isBlank()) return emptyList()
-        val artists = historyString.split("|").map { it.trim() }.filter { it.isNotBlank() }
-        
-        val sections = mutableListOf<HomeSection>()
-        val allMixedSongs = mutableListOf<SearchItem>()
-        
-        artists.forEachIndexed { index, artist ->
-            try {
-                val result = YouTubeMusic.search(artist, SearchFilter.SONGS)
-                val searchResult = result.getOrNull()
-                if (searchResult != null && searchResult.items.isNotEmpty()) {
-                    val title = when (index) {
-                        0 -> "More from $artist"
-                        1 -> "Because you listened to $artist"
-                        else -> "Vibes like $artist"
-                    }
-                    // Shuffle the fetched items to ensure fresh songs show up on every refresh
-                    val shuffledItems = searchResult.items.shuffled()
-                    sections.add(HomeSection(title, shuffledItems.take(10)))
-                    allMixedSongs.addAll(shuffledItems)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load personalized section for $artist", e)
-            }
-        }
-        
-        // Generate a combined "Your Personalized Mix" that dynamically shuffles on every refresh
-        if (allMixedSongs.isNotEmpty()) {
-            val shuffledMix = allMixedSongs.distinctBy { item ->
-                when (item) {
-                    is SearchItem.Song -> item.song.videoId
-                    is SearchItem.Album -> item.album.browseId
-                    is SearchItem.Artist -> item.artist.browseId
-                    is SearchItem.Playlist -> item.playlist.playlistId
-                }
-            }.shuffled().take(12)
-            
-            if (shuffledMix.isNotEmpty()) {
-                sections.add(0, HomeSection("Your Personalized Mix", shuffledMix))
-            }
-        }
-        
-        return sections
-    }
+    // (Removed getPersonalizedSections to rely purely on YouTube Explore)
 
     private fun syncCookieFromDisk() {
         val ctx = getApplication<Application>()
@@ -422,81 +533,29 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
             return@coroutineScope sections
         }
 
-        // Standard Feed Scenario: Launch Parallel background queries
-        val homeTask = if (InnerTubeClient.cookie != null) {
-            async { YouTubeMusic.home().getOrNull() }
-        } else null
-        
-        val exploreTask = async { YouTubeMusic.explore().getOrNull() }
+        // Standard Feed Scenario: Load pure YouTube Home
+        val homePage = YouTubeMusic.home().getOrNull()
 
-        // 1. While network is running, start compiling local personalized stats (Instant CPU task)
-        val localStats = getPersonalizedSections()
-
-        // 2. Await Network streams
-        val homePage = homeTask?.await()
         homeContinuationToken = homePage?.continuation
-        val explorePage = exploreTask.await()
 
         // Extract Moods
         val allMoods = mutableListOf<String>()
         homePage?.moods?.let { allMoods.addAll(it) }
-        if (allMoods.isEmpty()) {
-            explorePage?.moods?.let { allMoods.addAll(it) }
-        }
         if (allMoods.isNotEmpty()) {
             _uiState.update { it.copy(homeMoods = allMoods.distinct()) }
         }
 
-        // 3. Merge Results safely in explicit priority order
-        // Priority A: Personalized Home Content from YT
+        // Add pure Home sections
         homePage?.sections?.let { sections.addAll(it) }
 
-        // Priority B: In-App Local playback analytics (Don't duplicate labels)
-        localStats.forEach { sec ->
-            if (sections.none { it.title.equals(sec.title, ignoreCase = true) }) {
-                sections.add(sec)
-            }
-        }
-
-        // Priority C: Generic trending explore feeds
-        explorePage?.sections?.forEach { sec ->
-            if (sections.none { it.title.equals(sec.title, ignoreCase = true) }) {
-                sections.add(sec)
-            }
-        }
-
-        // 4. Post-processing: Filter out disliked / not interested songs, and inject/merge local Speed Dial!
+        // Post-processing: Filter out disliked / not interested songs
         val notInterested = _uiState.value.notInterestedIds
-        val pinnedSongs = getPinnedSpeedDialSongs().filterNot { notInterested.contains(it.videoId) }
 
         val processedSections = sections.map { sec ->
             sec.copy(items = sec.items.filterNot { item ->
                 item is SearchItem.Song && notInterested.contains(item.song.videoId)
             })
         }.filter { it.items.isNotEmpty() }.toMutableList()
-
-        // Handle Speed dial merging
-        if (pinnedSongs.isNotEmpty()) {
-            val speedDialIndex = processedSections.indexOfFirst { it.title.contains("speed dial", ignoreCase = true) }
-            if (speedDialIndex != -1) {
-                val originalSec = processedSections[speedDialIndex]
-                val originalItems = originalSec.items
-                val pinnedItems = pinnedSongs.map { SearchItem.Song(it) }
-                val mergedItems = (pinnedItems + originalItems).distinctBy { item ->
-                    when (item) {
-                        is SearchItem.Song -> item.song.videoId
-                        is SearchItem.Album -> item.album.browseId
-                        is SearchItem.Artist -> item.artist.browseId
-                        is SearchItem.Playlist -> item.playlist.playlistId
-                    }
-                }.take(9)
-                processedSections[speedDialIndex] = originalSec.copy(items = mergedItems)
-            } else {
-                val pinnedItems = pinnedSongs.map { SearchItem.Song(it) }.take(9)
-                val insertIndex = if (processedSections.isNotEmpty() && processedSections[0].title.contains("personalized mix", ignoreCase = true)) 1 else 0
-                processedSections.add(insertIndex, HomeSection("Speed dial", pinnedItems))
-            }
-        }
 
         processedSections
     }
@@ -579,19 +638,22 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         }
 
         // Track played artist for home feed personalization
-        if (song.artist.isNotBlank() && !song.artist.equals("<unknown>", ignoreCase = true)) {
-            val historyString = prefs.getString("recent_artists_list", "") ?: ""
-            val currentList = if (historyString.isBlank()) {
-                mutableListOf()
-            } else {
-                historyString.split("|").map { it.trim() }.filter { it.isNotBlank() }.toMutableList()
-            }
-            currentList.remove(song.artist.trim())
-            currentList.add(0, song.artist.trim())
-            val trimmedList = currentList.take(3)
-            prefs.edit {
-                putString("recent_artists_list", trimmedList.joinToString("|"))
-                    .putString("last_played_artist", song.artist) // Backwards compatibility
+        val appSettings = getApplication<android.app.Application>().getSharedPreferences("AppSettings", android.content.Context.MODE_PRIVATE)
+        if (!appSettings.getBoolean("pause_history", false)) {
+            if (song.artist.isNotBlank() && !song.artist.equals("<unknown>", ignoreCase = true)) {
+                val historyString = prefs.getString("recent_artists_list", "") ?: ""
+                val currentList = if (historyString.isBlank()) {
+                    mutableListOf()
+                } else {
+                    historyString.split("|").map { it.trim() }.filter { it.isNotBlank() }.toMutableList()
+                }
+                currentList.remove(song.artist.trim())
+                currentList.add(0, song.artist.trim())
+                val trimmedList = currentList.take(3)
+                prefs.edit {
+                    putString("recent_artists_list", trimmedList.joinToString("|"))
+                        .putString("last_played_artist", song.artist) // Backwards compatibility
+                }
             }
         }
 
@@ -732,6 +794,50 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
+    fun loadGenres() {
+        _uiState.update { it.copy(isLoadingDetail = true) }
+        viewModelScope.launch {
+            try {
+                val result = YouTubeMusic.moodsAndGenres()
+                result.onSuccess { sections ->
+                    _uiState.update {
+                        it.copy(
+                            genresSections = sections,
+                            detailStack = it.detailStack + DetailType.GENRES
+                        )
+                    }
+                }
+                result.onFailure {
+                    _uiState.update { it.copy(error = "Failed to load Moods & Genres") }
+                }
+            } finally {
+                _uiState.update { it.copy(isLoadingDetail = false) }
+            }
+        }
+    }
+
+    fun loadMood(title: String, browseId: String, params: String?) {
+        _uiState.update { it.copy(isLoadingDetail = true) }
+        viewModelScope.launch {
+            try {
+                val result = YouTubeMusic.moodCategory(browseId, params)
+                result.onSuccess { homePage ->
+                    _uiState.update {
+                        it.copy(
+                            moodDetail = MoodDetail(title, homePage.sections),
+                            detailStack = it.detailStack + DetailType.MOOD
+                        )
+                    }
+                }
+                result.onFailure {
+                    _uiState.update { it.copy(error = "Failed to load mood category details") }
+                }
+            } finally {
+                _uiState.update { it.copy(isLoadingDetail = false) }
+            }
+        }
+    }
     fun popDetailStack() {
         _uiState.update { state ->
             if (state.detailStack.isEmpty()) return@update state
@@ -742,6 +848,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 DetailType.PLAYLIST -> state.copy(playlistDetail = null, detailStack = nextStack)
                 DetailType.ARTIST -> state.copy(artistDetail = null, detailStack = nextStack)
                 DetailType.SECTION -> state.copy(sectionDetail = null, detailStack = nextStack)
+                DetailType.GENRES -> state.copy(genresSections = emptyList(), detailStack = nextStack)
+                DetailType.MOOD -> state.copy(moodDetail = null, detailStack = nextStack)
             }
         }
     }
@@ -753,10 +861,13 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 artistDetail = null,
                 playlistDetail = null,
                 sectionDetail = null,
+                moodDetail = null,
+                genresSections = emptyList(),
                 detailStack = emptyList(),
                 searchQuery = "",
                 searchResults = emptyList(),
-                isSearching = false
+                isSearching = false,
+                isLoadingSuggestions = false
             )
         }
         cameFromLibrary = false
@@ -767,7 +878,7 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { it.copy(isLoadingStream = true) }
         viewModelScope.launch {
             try {
-                val result = YouTubeMusic.startRadio(videoId)
+                val result = YouTubeMusic.startRadio(videoId = videoId)
                 result.onSuccess { radioSongs ->
                     if (radioSongs.isNotEmpty()) {
                         playOnlineSongWithQueue(radioSongs.first(), radioSongs, 0)
@@ -778,6 +889,84 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
                 }
             } finally {
                 _uiState.update { it.copy(isLoadingStream = false) }
+            }
+        }
+    }
+
+    fun startRadioForItem(item: SearchItem) {
+        _uiState.update { it.copy(isLoadingStream = true) }
+        viewModelScope.launch {
+            try {
+                val (vId, pId) = when (item) {
+                    is SearchItem.TopResult -> {
+                        when {
+                            item.song != null -> item.song.videoId to "RDAMVM${item.song.videoId}"
+                            item.playlist != null -> null to "RDAMPL${item.playlist.playlistId}"
+                            item.album != null -> null to "RDAMPL${item.album.playlistId?.takeIf { it.isNotEmpty() } ?: item.album.browseId}"
+                            item.artist != null -> null to "RDAMPR${item.artist.browseId}"
+                            else -> null to null
+                        }
+                    }
+                    is SearchItem.Header -> null to null
+                    is SearchItem.Song -> item.song.videoId to "RDAMVM${item.song.videoId}"
+                    is SearchItem.Playlist -> null to "RDAMPL${item.playlist.playlistId}"
+                    is SearchItem.Album -> null to "RDAMPL${item.album.playlistId?.takeIf { it.isNotEmpty() } ?: item.album.browseId}"
+                    is SearchItem.Artist -> null to "RDAMPR${item.artist.browseId}"
+                }
+                
+                if (vId == null && pId == null) return@launch
+
+                val result = YouTubeMusic.startRadio(videoId = vId, playlistId = pId)
+                result.onSuccess { radioSongs ->
+                    if (radioSongs.isNotEmpty()) {
+                        playOnlineSongWithQueue(radioSongs.first(), radioSongs, 0)
+                    } else {
+                        com.codetrio.spatialflow.ui.SnackbarController.showMessage("No radio station available")
+                    }
+                }
+                result.onFailure { 
+                    com.codetrio.spatialflow.ui.SnackbarController.showMessage("Failed to start radio")
+                }
+            } finally {
+                _uiState.update { it.copy(isLoadingStream = false) }
+            }
+        }
+    }
+
+    fun saveItemToLibrary(item: SearchItem) {
+        viewModelScope.launch {
+            try {
+                val result = when (item) {
+                    is SearchItem.TopResult -> {
+                        when {
+                            item.song != null -> YouTubeMusic.updateLikeStatus(item.song.videoId, YouTubeMusic.LikeStatus.LIKE)
+                            item.playlist != null -> YouTubeMusic.updateLikeStatus(item.playlist.playlistId, YouTubeMusic.LikeStatus.LIKE)
+                            item.album != null -> YouTubeMusic.updateLikeStatus(item.album.playlistId ?: item.album.browseId, YouTubeMusic.LikeStatus.LIKE)
+                            item.artist != null -> YouTubeMusic.subscribeArtist(item.artist.browseId)
+                            else -> return@launch
+                        }
+                    }
+                    is SearchItem.Header -> return@launch
+                    is SearchItem.Song -> YouTubeMusic.updateLikeStatus(item.song.videoId, YouTubeMusic.LikeStatus.LIKE)
+                    is SearchItem.Playlist -> YouTubeMusic.updateLikeStatus(item.playlist.playlistId, YouTubeMusic.LikeStatus.LIKE)
+                    is SearchItem.Album -> YouTubeMusic.updateLikeStatus(item.album.playlistId ?: item.album.browseId, YouTubeMusic.LikeStatus.LIKE)
+                    is SearchItem.Artist -> YouTubeMusic.subscribeArtist(item.artist.browseId)
+                }
+                result.onSuccess {
+                    val name = when(item) {
+                        is SearchItem.TopResult -> item.title
+                        is SearchItem.Header -> ""
+                        is SearchItem.Song -> item.song.title
+                        is SearchItem.Playlist -> item.playlist.title
+                        is SearchItem.Album -> item.album.title
+                        is SearchItem.Artist -> item.artist.title
+                    }
+                    com.codetrio.spatialflow.ui.SnackbarController.showMessage("'$name' saved to Library!")
+                }.onFailure {
+                    com.codetrio.spatialflow.ui.SnackbarController.showMessage("Failed to save to Library")
+                }
+            } catch (e: Exception) {
+                com.codetrio.spatialflow.ui.SnackbarController.showMessage("Error saving to Library")
             }
         }
     }
@@ -987,6 +1176,8 @@ class ExploreViewModel(application: Application) : AndroidViewModel(application)
     private fun prefetchThumbnails(items: List<SearchItem>) {
         val urls = items.mapNotNull { item ->
             when (item) {
+                is SearchItem.TopResult -> item.thumbnailUrl
+                is SearchItem.Header -> null
                 is SearchItem.Song -> item.song.thumbnailUrl
                 is SearchItem.Album -> item.album.thumbnailUrl
                 is SearchItem.Artist -> item.artist.thumbnailUrl
@@ -1018,6 +1209,7 @@ data class ExploreUiState(
     val searchResults: List<SearchItem> = emptyList(),
     val suggestions: List<String> = emptyList(),
     val isSearching: Boolean = false,
+    val isLoadingSuggestions: Boolean = false,
     val homeSections: List<HomeSection> = emptyList(),
     val isLoadingHome: Boolean = false,
     val isLoadingStream: Boolean = false,
@@ -1028,6 +1220,8 @@ data class ExploreUiState(
     val artistDetail: ArtistPage? = null,
     val playlistDetail: PlaylistPage? = null,
     val sectionDetail: HomeSection? = null,
+    val moodDetail: MoodDetail? = null,
+    val genresSections: List<HomeSection> = emptyList(),
     val isLoadingDetail: Boolean = false,
     val isRefreshing: Boolean = false,
     val searchHistory: List<String> = emptyList(),

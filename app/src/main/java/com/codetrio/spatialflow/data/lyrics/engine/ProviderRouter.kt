@@ -7,19 +7,19 @@ import com.codetrio.spatialflow.data.lyrics.ConfidenceScorer
 import com.codetrio.spatialflow.data.lyrics.LyricsResult
 import com.codetrio.spatialflow.data.lyrics.TrackMetadata
 import com.codetrio.spatialflow.data.lyrics.providers.LyricsProvider
+import kotlinx.coroutines.*
+import kotlinx.coroutines.selects.select
 import java.util.ArrayList
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Dispatches lyrics search to all providers in parallel.
- * Uses an "async race" strategy:
- * - Launch all providers simultaneously
- * - First result with confidence >= 0.85 wins immediately
- * - Else best result after all complete / timeout wins
+ * Dispatches lyrics search to all providers.
+ * Uses an "async race" strategy with Kotlin Coroutines:
+ * - Try top-priority provider first (sequential checking).
+ * - If it fails or returns low confidence, query remaining enabled providers concurrently.
+ * - First result with confidence >= 0.85 and word-by-word wins immediately.
+ * - Else best result after all complete / timeout wins.
  */
 class ProviderRouter(
     providers: List<LyricsProvider>,
@@ -28,7 +28,6 @@ class ProviderRouter(
 ) {
 
     private val providers: List<LyricsProvider>
-    private val executor: ExecutorService
 
     companion object {
         private const val TAG = "ProviderRouter"
@@ -40,175 +39,111 @@ class ProviderRouter(
         val sortedProviders = ArrayList(providers)
         sortedProviders.sortBy { it.getPriority() }
         this.providers = sortedProviders
-
-        this.executor = Executors.newCachedThreadPool { r ->
-            val t = Thread(r, "LyricsProvider")
-            t.isDaemon = true
-            t
-        }
     }
 
     /**
-     * Search all providers in parallel and return the best result.
-     * This method blocks until a high-confidence result is found or all providers
-     * finish.
+     * Search all providers using coroutines and return the best result.
      *
      * @param track    Normalized track metadata
      * @param language Detected language for stats tracking
      * @return Best LyricsResult, or null if nothing found
      */
-    fun searchAll(
+    suspend fun searchAll(
         track: TrackMetadata?,
         language: String,
         cancelOnEarlyWin: Boolean = true,
         onProviderResult: (String, LyricsResult?) -> Unit = { _, _ -> }
-    ): LyricsResult? {
-        if (providers.isEmpty() || track == null) return null
+    ): LyricsResult? = withContext(Dispatchers.IO) {
+        if (providers.isEmpty() || track == null) return@withContext null
 
-        Log.d(TAG, "Starting parallel search across ${providers.size} providers for: $track")
+        Log.d(TAG, "Starting 100% parallel async race across ${providers.size} providers for: $track")
 
         // Get provider order from stats (dynamic reordering)
         val orderedProviders = stats.getOrderedProviders(providers, language)
-
         val bestResult = AtomicReference<LyricsResult>(null)
-        val earlyWin = AtomicBoolean(false)
-        val lock = Object()
-        val futures = ArrayList<Future<*>>()
 
-        val hasAppleMusicProvider = orderedProviders.any { it.getName().contains("Apple Music", ignoreCase = true) }
-        val appleMusicFinished = AtomicBoolean(!hasAppleMusicProvider)
+        val resultFromRace = withTimeoutOrNull(TIMEOUT_SECONDS * 1000) {
+            supervisorScope {
+                val deferreds = orderedProviders.map { provider ->
+                    val isTtmlProvider = provider.getName().contains("Apple Music", ignoreCase = true) ||
+                            provider.getName().contains("YouLyPlus", ignoreCase = true) ||
+                            provider.getName().contains("BetterLyrics", ignoreCase = true)
 
-        for (provider in orderedProviders) {
-            val future = executor.submit {
-                if (earlyWin.get() && cancelOnEarlyWin) {
-                    onProviderResult(provider.getName(), null)
-                    return@submit
+                    provider to async(Dispatchers.IO) {
+                        val start = System.currentTimeMillis()
+                        try {
+                            val result = provider.search(track)
+                            val elapsed = System.currentTimeMillis() - start
+
+                            if (result != null && result.hasLyrics()) {
+                                val confidence = scorer.score(result, track)
+                                result.confidence = confidence
+
+                                Log.d(TAG, "${provider.getName()} returned result (confidence=$confidence, synced=${result.isSynced}, karaoke=${result.isWordByWord}) in ${elapsed}ms")
+
+                                stats.recordSuccess(provider.getName(), language, confidence)
+                                onProviderResult(provider.getName(), result)
+                                Triple(provider.getName(), result, isTtmlProvider)
+                            } else {
+                                Log.d(TAG, "${provider.getName()} returned no results in ${elapsed}ms")
+                                stats.recordFailure(provider.getName(), language)
+                                onProviderResult(provider.getName(), null)
+                                Triple(provider.getName(), null, isTtmlProvider)
+                            }
+                        } catch (e: Exception) {
+                            val elapsed = System.currentTimeMillis() - start
+                            Log.w(TAG, "${provider.getName()} failed in ${elapsed}ms: ${e.message}")
+                            stats.recordFailure(provider.getName(), language)
+                            onProviderResult(provider.getName(), null)
+                            Triple(provider.getName(), null, isTtmlProvider)
+                        }
+                    }
                 }
 
-                val isAppleMusic = provider.getName().contains("Apple Music", ignoreCase = true)
-                val start = System.currentTimeMillis()
-                try {
-                    val result = provider.search(track)
-                    val elapsed = System.currentTimeMillis() - start
+                val pending = deferreds.map { it.second }.toMutableSet()
+                var earlyWinner: LyricsResult? = null
 
-                    if (result != null && result.hasLyrics()) {
-                        val confidence = scorer.score(result, track)
-                        result.confidence = confidence
+                while (pending.isNotEmpty() && earlyWinner == null) {
+                    val (completedDeferred, triple) = select<Pair<Deferred<Triple<String, LyricsResult?, Boolean>>, Triple<String, LyricsResult?, Boolean>>> {
+                        pending.forEach { deferred ->
+                            deferred.onAwait { result -> deferred to result }
+                        }
+                    }
+                    pending.remove(completedDeferred)
 
-                        Log.d(TAG, "${provider.getName()} returned result (confidence=$confidence, synced=${result.isSynced}) in ${elapsed}ms")
+                    val (providerName, result, isTtmlProvider) = triple
 
-                        stats.recordSuccess(provider.getName(), language, confidence)
-                        onProviderResult(provider.getName(), result)
-
-                        synchronized(lock) {
+                    if (result != null) {
+                        synchronized(bestResult) {
                             val current = bestResult.get()
-
-                            if (current == null || isBetterResult(result, confidence, current)) {
+                            if (current == null || isBetterResult(result, result.confidence, current)) {
                                 bestResult.set(result)
                             }
 
-                            if (isAppleMusic) {
-                                appleMusicFinished.set(true)
-                            }
+                            // Early win logic: Karaoke (word-by-word) or high-confidence TTML result wins immediately
+                            val shouldEarlyWin = (result.isWordByWord && result.confidence >= ConfidenceScorer.THRESHOLD_SHOW) ||
+                                    (isTtmlProvider && result.isSynced && result.confidence >= 0.85f)
 
-                            // Early win logic:
-                            if (result.isWordByWord && confidence >= ConfidenceScorer.THRESHOLD_SHOW) {
-                                // If Apple Music provided a high confidence word-by-word, win immediately!
-                                if (isAppleMusic) {
-                                    earlyWin.set(true)
-                                    lock.notifyAll()
-                                } else if (appleMusicFinished.get()) {
-                                    // If another provider has word-by-word AND Apple Music is already done (and didn't win), we can early win.
-                                    earlyWin.set(true)
-                                    lock.notifyAll()
-                                }
-                            } else if (isAppleMusic) {
-                                // Apple music finished but wasn't a high confidence word-by-word win.
-                                // If we ALREADY have a high confidence word-by-word from someone else, win now!
-                                val currentBest = bestResult.get()
-                                if (currentBest != null && currentBest.isWordByWord && currentBest.confidence >= ConfidenceScorer.THRESHOLD_SHOW) {
-                                    earlyWin.set(true)
-                                    lock.notifyAll()
-                                }
-                            }
-                        }
-                    } else {
-                        Log.d(TAG, "${provider.getName()} returned no results in ${elapsed}ms")
-                        stats.recordFailure(provider.getName(), language)
-                        onProviderResult(provider.getName(), null)
-                        
-                        synchronized(lock) {
-                            if (isAppleMusic) {
-                                appleMusicFinished.set(true)
-                                val currentBest = bestResult.get()
-                                if (currentBest != null && currentBest.isWordByWord && currentBest.confidence >= ConfidenceScorer.THRESHOLD_SHOW) {
-                                    earlyWin.set(true)
-                                    lock.notifyAll()
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    val elapsed = System.currentTimeMillis() - start
-                    Log.w(TAG, "${provider.getName()} failed in ${elapsed}ms: ${e.message}")
-                    stats.recordFailure(provider.getName(), language)
-                    onProviderResult(provider.getName(), null)
-                    
-                    synchronized(lock) {
-                        if (isAppleMusic) {
-                            appleMusicFinished.set(true)
-                            val currentBest = bestResult.get()
-                            if (currentBest != null && currentBest.isWordByWord && currentBest.confidence >= ConfidenceScorer.THRESHOLD_SHOW) {
-                                earlyWin.set(true)
-                                lock.notifyAll()
+                            if (shouldEarlyWin && cancelOnEarlyWin) {
+                                Log.d(TAG, "Early win achieved by $providerName in parallel race!")
+                                earlyWinner = result
+                                pending.forEach { it.cancel() }
                             }
                         }
                     }
                 }
-            }
-            futures.add(future)
-        }
-
-        synchronized(lock) {
-            val deadline = System.currentTimeMillis() + (TIMEOUT_SECONDS * 1000)
-            while (!earlyWin.get() && System.currentTimeMillis() < deadline) {
-                var allDone = true
-                for (f in futures) {
-                    if (!f.isDone) {
-                        allDone = false
-                        break
-                    }
-                }
-                if (allDone) break
-
-                try {
-                    val remaining = deadline - System.currentTimeMillis()
-                    if (remaining > 0) {
-                        lock.wait(remaining.coerceAtMost(500))
-                    }
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                }
+                earlyWinner ?: bestResult.get()
             }
         }
 
-        if (cancelOnEarlyWin) {
-            for (f in futures) {
-                if (!f.isDone) {
-                    f.cancel(true)
-                }
-            }
-        }
-
-        val best = bestResult.get()
-        if (best != null) {
-            Log.d(TAG, "Best result from ${best.providerName} (confidence=${best.confidence}, synced=${best.isSynced})")
+        val finalResult = resultFromRace ?: bestResult.get()
+        if (finalResult != null) {
+            Log.d(TAG, "Best result from ${finalResult.providerName} (confidence=${finalResult.confidence}, synced=${finalResult.isSynced})")
         } else {
             Log.d(TAG, "No results from any provider")
         }
 
-        return best
+        finalResult
     }
 
     private fun isBetterResult(newResult: LyricsResult, newConfidence: Float, current: LyricsResult): Boolean {
@@ -241,11 +176,20 @@ class ProviderRouter(
             return currentConfidence < 0.45f && newConfidence > currentConfidence + 0.2f
         }
 
+        // Both are synced, or both are unsynced:
+        // Prioritize Apple Music if one of them is Apple Music
+        if (isNewAppleMusic && !isCurrentAppleMusic) {
+            return newConfidence >= currentConfidence - 0.1f // Slightly lower confidence is okay for Apple Music
+        }
+        if (!isNewAppleMusic && isCurrentAppleMusic) {
+            return newConfidence > currentConfidence + 0.1f // Needs significantly higher confidence to beat Apple Music
+        }
+
         // Same tier: higher confidence wins
         return newConfidence > currentConfidence
     }
 
     fun shutdown() {
-        executor.shutdownNow()
+        // No-op: Coroutines managed by calling scope
     }
 }

@@ -35,7 +35,14 @@ object NewPipeStreamExtractor {
     private val inFlightRequests = ConcurrentHashMap<String, Deferred<String?>>()
     private val inFlightPlayerResults = ConcurrentHashMap<String, Deferred<PlayerResult?>>()
 
-    private val extractorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Use a dedicated thread pool so parallel prefetches never starve each other.
+    // 6 threads = enough to saturate a typical mobile connection with simultaneous
+    // NewPipe stream info requests without overwhelming the device.
+    private val extractorScope = CoroutineScope(
+        SupervisorJob() + java.util.concurrent.Executors
+            .newFixedThreadPool(6)
+            .asCoroutineDispatcher()
+    )
 
     // === Preference Caching ===
     private data class PreferenceSnapshot(
@@ -113,18 +120,26 @@ object NewPipeStreamExtractor {
     private fun selectBestStream(audioStreams: List<AudioStream>): AudioStream? {
         val selectStart = System.currentTimeMillis()
         val (audioQuality, dataSaver) = getPreferencesSnapshot()
-        
+
         if (audioStreams.isEmpty()) return null
 
+        // Always prefer WEBMA_OPUS (WebM/Opus) streams — higher quality, lower overhead.
+        // Only fall back to the full list (AAC/M4A) if no Opus stream exists at all.
+        val opusStreams = audioStreams.filter {
+            it.format == org.schabi.newpipe.extractor.MediaFormat.WEBMA_OPUS
+        }
+        val pool = if (opusStreams.isNotEmpty()) opusStreams else audioStreams
+
         val best = when {
-            audioQuality == "Data Saver" || dataSaver -> audioStreams.minByOrNull { maxOf(it.bitrate, it.averageBitrate) }
+            audioQuality == "Data Saver" || dataSaver ->
+                pool.minByOrNull { maxOf(it.bitrate, it.averageBitrate) }
             audioQuality == "Normal" -> {
-                val sorted = audioStreams.sortedBy { maxOf(it.bitrate, it.averageBitrate) }
+                val sorted = pool.sortedBy { maxOf(it.bitrate, it.averageBitrate) }
                 sorted.elementAtOrNull(sorted.size / 2)
             }
-            else -> audioStreams.maxByOrNull { maxOf(it.bitrate, it.averageBitrate) }
+            else -> pool.maxByOrNull { maxOf(it.bitrate, it.averageBitrate) }
         }
-        Log.d(TAG, "selectBestStream took ${System.currentTimeMillis() - selectStart}ms")
+        Log.d(TAG, "selectBestStream: quality=$audioQuality opus=${opusStreams.size}/${audioStreams.size} picked=${best?.format?.name}@${best?.averageBitrate}kbps | took ${System.currentTimeMillis() - selectStart}ms")
         return best
     }
 
@@ -200,7 +215,7 @@ object NewPipeStreamExtractor {
                     val streams = listOf(
                         StreamData(
                             url = bestStream.content,
-                            mimeType = bestStream.format?.mimeType ?: "audio/mp4",
+                            mimeType = if (bestStream.format == org.schabi.newpipe.extractor.MediaFormat.WEBMA_OPUS) "audio/webm" else (bestStream.format?.mimeType ?: "audio/webm"),
                             bitrate = bestStream.averageBitrate,
                             contentLength = null,
                             audioQuality = when {
@@ -253,9 +268,9 @@ object NewPipeStreamExtractor {
     /**
      * Batch extraction with controlled concurrency.
      */
-    suspend fun extractBatch(videoIds: List<String>, batchSize: Int = 4): Map<String, String> = coroutineScope {
+    suspend fun extractBatch(videoIds: List<String>, batchSize: Int = 6): Map<String, String> = coroutineScope {
         val results = ConcurrentHashMap<String, String>()
-        
+
         videoIds.chunked(batchSize).forEach { batch ->
             val deferreds = batch.map { id ->
                 async {
@@ -265,7 +280,7 @@ object NewPipeStreamExtractor {
             }
             deferreds.awaitAll()
         }
-        
+
         return@coroutineScope results
     }
 
@@ -276,11 +291,35 @@ object NewPipeStreamExtractor {
      */
     fun prefetchBatch(videoIds: List<String>, priority: PrefetchPriority = PrefetchPriority.LOW) {
         val size = when (priority) {
-            PrefetchPriority.LOW -> 2
-            PrefetchPriority.MEDIUM -> 4
+            PrefetchPriority.LOW    -> 3   // was 2
+            PrefetchPriority.MEDIUM -> 6   // was 4
         }
         extractorScope.launch {
             extractBatch(videoIds, batchSize = size)
+        }
+    }
+
+    /**
+     * Warm both the URL cache AND the full PlayerResult cache for a list of video IDs
+     * in parallel. A single [getPlayerResult] call seeds both caches, so this is more
+     * efficient than calling [prefetchBatch] (URL-only) for every item.
+     *
+     * Call this whenever you know the next 2-3 songs (e.g. at queue load time or
+     * after a track transition).
+     */
+    fun warmCache(videoIds: List<String>) {
+        val uncached = videoIds.filter { id ->
+            synchronized(cacheLock) {
+                playerResultCache.get(id) == null && streamUrlCache.get(id) == null
+            }
+        }
+        if (uncached.isEmpty()) return
+        extractorScope.launch {
+            uncached.map { id ->
+                async {
+                    try { getPlayerResult(id) } catch (_: Exception) {}
+                }
+            }.awaitAll()
         }
     }
 

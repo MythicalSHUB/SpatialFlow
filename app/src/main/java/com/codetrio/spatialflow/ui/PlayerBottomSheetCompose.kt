@@ -20,6 +20,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -103,6 +104,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -444,7 +447,8 @@ class SheetVerticalDragGestureHandler(
     private val onAnimateSheet: suspend (targetExpanded: Boolean, animationSpec: AnimationSpec<Float>?, initialVelocity: Float) -> Unit,
     private val onExpandSheetState: () -> Unit,
     private val onCollapseSheetState: () -> Unit,
-    private val onDragStateChange: (Boolean) -> Unit
+    private val onDragStateChange: (Boolean) -> Unit,
+    private val onFractionChanged: (Float) -> Unit
 ) {
     private var initialFractionOnDragStart = 0f
     private var initialYOnDragStart = 0f
@@ -480,6 +484,7 @@ class SheetVerticalDragGestureHandler(
         dragJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             currentSheetTranslationY.snapTo(dragFrame.translationY)
             playerContentExpansionFraction.snapTo(dragFrame.expansionFraction)
+            onFractionChanged(dragFrame.expansionFraction)
         }
         velocityTracker.addPosition(uptimeMillis, position)
     }
@@ -741,6 +746,8 @@ fun PlayerBottomSheetCompose(
         }
         val isCurrentSongDisliked by viewModel.isCurrentSongDisliked.collectAsStateWithLifecycle()
         val isCurrentSongDownloaded by viewModel.isCurrentSongDownloaded.collectAsStateWithLifecycle()
+        val streamingQuality by viewModel.streamingQuality.collectAsStateWithLifecycle()
+        val playbackFormat by viewModel.playbackFormat.collectAsStateWithLifecycle()
         val currentSongDownloadProgress by viewModel.currentSongDownloadProgress.collectAsStateWithLifecycle()
         val isLyricsModeEnabled by viewModel.isLyricsModeEnabled.collectAsStateWithLifecycle()
         val showSignInDialog by viewModel.showSignInDialog.collectAsStateWithLifecycle()
@@ -779,14 +786,14 @@ fun PlayerBottomSheetCompose(
         }
         val lyricsArtworkProgress by animateFloatAsState(
             targetValue = if (isLyricsModeEnabled) 1f else 0f,
-            animationSpec = spring(dampingRatio = 0.86f, stiffness = 420f),
+            animationSpec = spring(dampingRatio = 0.88f, stiffness = 380f),
             label = "LyricsArtworkSharedElement"
         )
  
         val uiState = remember(
             currentSong, isPlaying, duration, isProcessing, currentSongIndex,
             isHapticsEnabled, miniPlayerBlendColor, isCurrentSongFavorite, isCurrentSongDisliked, repeatMode, isShuffleEnabled,
-            playerBackgroundColor, likesCount, isCurrentSongDownloaded, currentSongDownloadProgress
+            playerBackgroundColor, likesCount, isCurrentSongDownloaded, currentSongDownloadProgress, streamingQuality, playbackFormat
         ) {
             PlayerUiState(
                 currentSong = currentSong,
@@ -803,7 +810,9 @@ fun PlayerBottomSheetCompose(
                 playerBackgroundColor = playerBackgroundColor,
                 likesCount = likesCount,
                 isCurrentSongDownloaded = isCurrentSongDownloaded,
-                currentSongDownloadProgress = currentSongDownloadProgress
+                currentSongDownloadProgress = currentSongDownloadProgress,
+                streamingQuality = streamingQuality,
+                playbackFormat = playbackFormat
             )
         }
 
@@ -945,7 +954,9 @@ fun PlayerBottomSheetCompose(
                         targetValue = destFraction,
                         animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
                         initialVelocity = initialFractionVelocity
-                    )
+                    ) {
+                        viewModel.setPlayerExpansionFraction(value)
+                    }
                 }
             }
         }
@@ -998,7 +1009,8 @@ fun PlayerBottomSheetCompose(
                 onAnimateSheet = { target, _, velocity -> animatePlayerSheet(target, velocity) },
                 onExpandSheetState = { currentSheetContentState = PlayerSheetState.EXPANDED },
                 onCollapseSheetState = { currentSheetContentState = PlayerSheetState.COLLAPSED },
-                onDragStateChange = { dragging -> isDragging = dragging }
+                onDragStateChange = { dragging -> isDragging = dragging },
+                onFractionChanged = { viewModel.setPlayerExpansionFraction(it) }
             )
         }
 
@@ -1105,8 +1117,56 @@ fun PlayerBottomSheetCompose(
                     // Integrated shared artwork layer. In lyrics mode the same ArtworkPager
                     // moves into the app bar as a compact thumbnail instead of being hidden.
                     val screenWidth = LocalConfiguration.current.screenWidthDp
-                    val albumArtSizeDp = (screenWidth * 0.9f).dp
+                    val screenHeight = LocalConfiguration.current.screenHeightDp
+                    val albumArtSizeDp = androidx.compose.ui.unit.min((screenWidth * 0.9f).dp, (screenHeight * 0.45f).dp)
                     val statusBarTopPx = WindowInsets.statusBars.getTop(density).toFloat()
+
+                    val canvasArtwork by viewModel.canvasArtwork.collectAsStateWithLifecycle()
+                    val prefs = context.getSharedPreferences("AppSettings", Context.MODE_PRIVATE)
+                    val showAnimatedArt = prefs.getBoolean("show_animated_art", true)
+                    val playerTheme = prefs.getString("player_theme", "fluid") ?: "fluid"
+                    val isStatic = playerTheme == "static"
+                    val hasCanvas = showAnimatedArt && canvasArtwork != null &&
+                        (!canvasArtwork!!.preferredVerticalAnimationUrl.isNullOrBlank() || !canvasArtwork!!.preferredAnimationUrl.isNullOrBlank())
+
+                    val miniSizePx = with(density) { 48.dp.toPx() }
+                    val fullSizePx = with(density) { albumArtSizeDp.toPx() }
+                    val appBarThumbSizePx = with(density) { 44.dp.toPx() }
+                    val appBarScale = appBarThumbSizePx / fullSizePx
+                    val appBarX = with(density) { 22.dp.toPx() }
+                    val appBarY = statusBarTopPx + with(density) { 18.dp.toPx() }
+                    val isTablet = screenWidth >= 600
+                    val screenWidthPx = with(density) { screenWidth.dp.toPx() }
+                    val xStartOffsetPx = with(density) { 16.dp.toPx() }
+                    val yStartPx = with(density) { 16.dp.toPx() }
+
+                    val xEndPx = remember(isTablet, screenWidthPx, fullSizePx) {
+                        if (isTablet) {
+                            (screenWidthPx / 4f) - (fullSizePx / 2f)
+                        } else {
+                            (screenWidthPx - fullSizePx) / 2f
+                        }
+                    }
+
+                    val yEndPx = remember(isTablet, statusBarTopPx, density, containerHeight, albumArtSizeDp, fullSizePx) {
+                        if (isTablet) {
+                            val headerHeightPx = statusBarTopPx + with(density) { 68.dp.toPx() }
+                            val containerHeightPx = with(density) { containerHeight.toPx() }
+                            val availableHeightPx = containerHeightPx - headerHeightPx
+                            val centerY = headerHeightPx + (availableHeightPx / 2f)
+                            centerY - (fullSizePx / 2f)
+                        } else {
+                            val minTopOffsetDp = with(density) { statusBarTopPx.toDp() } + 68.dp
+                            val topOffsetDp = ((containerHeight - albumArtSizeDp) / 2f - 220.dp).coerceAtLeast(minTopOffsetDp)
+                            with(density) { topOffsetDp.toPx() }
+                        }
+                    }
+                    val targetAppBarCornerRadiusPx = with(density) { 10.dp.toPx() }
+                    val targetAppBarShadowPx = with(density) { 6.dp.toPx() }
+                    val targetExpandedCornerRadiusPx = with(density) { 28.dp.toPx() } // Increased for Apple Music aesthetic
+
+                    var lastCornerRadiusPx by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
+                    var cachedShape by remember { mutableStateOf<androidx.compose.ui.graphics.Shape>(RoundedCornerShape(16.dp)) }
 
                     Box(
                         modifier = Modifier
@@ -1115,31 +1175,14 @@ fun PlayerBottomSheetCompose(
                                 val t = playerContentExpansionFraction.value
                                 val lyricsT = lyricsArtworkProgress
 
-                                val miniSizePx = 48.dp.toPx()
-                                val fullSizePx = albumArtSizeDp.toPx()
                                 val normalScale = androidx.compose.ui.util.lerp(miniSizePx / fullSizePx, 1f, t)
-
-                                // Account for the horizontal padding applied in the parent layout block
                                 val startPaddingPx = sheetVisualState.currentHorizontalPaddingStartPxProvider()
-
-                                // Position relative to the Surface top-left
-                                val xStartPx = startPaddingPx + 16.dp.toPx()
-                                val xEndPx = (with(density) { screenWidth.dp.toPx() } - fullSizePx) / 2f
-
-                                val yStartPx = 16.dp.toPx()
-                                val minTopOffsetDp = with(density) { statusBarTopPx.toDp() } + 68.dp // Removed 16.dp extra gap
-                                val topOffsetDp = ((containerHeight - albumArtSizeDp) / 2f - 220.dp).coerceAtLeast(minTopOffsetDp)
-                                val yEndPx = with(density) { topOffsetDp.toPx() }
+                                val xStartPx = startPaddingPx + xStartOffsetPx
 
                                 val normalX = androidx.compose.ui.util.lerp(xStartPx, xEndPx, t)
                                 val normalY = androidx.compose.ui.util.lerp(yStartPx, yEndPx, t)
-                                val normalCornerRadius = androidx.compose.ui.util.lerp(fullSizePx / 2f, 16.dp.toPx(), t)
-                                val normalShadow = androidx.compose.ui.util.lerp(0f, 16.dp.toPx(), t)
-
-                                val appBarThumbSizePx = 44.dp.toPx()
-                                val appBarScale = appBarThumbSizePx / fullSizePx
-                                val appBarX = 22.dp.toPx()
-                                val appBarY = statusBarTopPx + 18.dp.toPx()
+                                val normalCornerRadius = androidx.compose.ui.util.lerp(fullSizePx / 2f, targetExpandedCornerRadiusPx, t)
+                                val normalShadow = androidx.compose.ui.util.lerp(0f, targetAppBarShadowPx, t)
 
                                 val dismissOffsetPx = offsetAnimatable.value * (1f - t)
 
@@ -1149,11 +1192,21 @@ fun PlayerBottomSheetCompose(
                                 translationY = androidx.compose.ui.util.lerp(normalY, appBarY, lyricsT)
                                 transformOrigin = TransformOrigin(0f, 0f)
 
-                                val cornerRadius = androidx.compose.ui.util.lerp(normalCornerRadius, 10.dp.toPx(), lyricsT)
-                                shape = RoundedCornerShape(cornerRadius)
+                                val cornerRadius = androidx.compose.ui.util.lerp(normalCornerRadius, targetAppBarCornerRadiusPx, lyricsT)
+                                if (kotlin.math.abs(cornerRadius - lastCornerRadiusPx) > 0.2f) {
+                                    lastCornerRadiusPx = cornerRadius
+                                    cachedShape = RoundedCornerShape(cornerRadius)
+                                }
+                                shape = cachedShape
                                 clip = true
-                                shadowElevation = androidx.compose.ui.util.lerp(normalShadow, 6.dp.toPx(), lyricsT)
-                                alpha = artworkAlpha
+                                shadowElevation = androidx.compose.ui.util.lerp(normalShadow, targetAppBarShadowPx, lyricsT)
+
+                                val canvasHideT = if (hasCanvas) {
+                                    ((t - 0.75f).coerceAtLeast(0f) * 4f) * (1f - lyricsT)
+                                } else {
+                                    0f
+                                }
+                                alpha = artworkAlpha * (1f - canvasHideT)
                             }
                             .zIndex(if (isQueueExpanded) 1f else if (isLyricsModeEnabled || lyricsArtworkProgress > 0f) 6f else 3f)
                     ) {
@@ -1164,6 +1217,7 @@ fun PlayerBottomSheetCompose(
                             currentSongIndex = uiState.currentSongIndex,
                             context = context,
                             userScrollEnabled = playerContentExpansionFraction.value > 0.95f && !isLyricsModeEnabled && !isQueueExpanded,
+                            allowCanvas = playerContentExpansionFraction.value > 0.95f && !isLyricsModeEnabled && lyricsArtworkProgress == 0f,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -1204,7 +1258,7 @@ fun PlayerBottomSheetCompose(
                         }
                         val bottomNavVisibilityFraction = (bottomNavTranslationYState.value / (if (bottomNavHeightPx > 0) bottomNavHeightPx else 1f)).coerceIn(0f, 1f)
                         val currentBottomGapPx = with(density) { 
-                            androidx.compose.ui.unit.lerp(12.dp, 8.dp, bottomNavVisibilityFraction).toPx() 
+                            lerp(12.dp, 8.dp, bottomNavVisibilityFraction).toPx()
                         }
                         
                         val effectiveBottomNavHeight = (bottomNavHeightPx - bottomNavTranslationYState.value).coerceAtLeast(0f)
@@ -1213,10 +1267,9 @@ fun PlayerBottomSheetCompose(
                         
                         if (showPlayerContentArea) {
                             val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
-                            bottomOffsetPx = effectiveBottomNavHeight + currentBottomGapPx + miniPlayerHeightPx + with(density) { 8.dp.toPx() }
-                            
-                            val topOfPlayerSheetY = sheetVisualState.visualSheetTranslationYProvider()
-                            bottomOffsetPx = screenHeightPx - topOfPlayerSheetY + with(density) { 8.dp.toPx() }
+                            val collapsedOffset = effectiveBottomNavHeight + currentBottomGapPx + miniPlayerHeightPx + with(density) { 8.dp.toPx() }
+                            val expandedOffset = with(density) { 120.dp.toPx() }
+                            bottomOffsetPx = collapsedOffset + (expandedOffset - collapsedOffset) * playerContentExpansionFraction.value
                         }
                         
                         IntOffset(0, -bottomOffsetPx.roundToInt())
@@ -1294,16 +1347,16 @@ private fun MiniPlayerContentInternal(
             modifier = Modifier.size(60.dp),
             contentAlignment = Alignment.Center
         ) {
-            val currentPosition by viewModel.currentPosition.collectAsStateWithLifecycle()
-            val duration by viewModel.duration.collectAsStateWithLifecycle()
-
             val progressAnimatable = remember { Animatable(0f) }
-            LaunchedEffect(currentPosition, duration) {
-                val target = if (duration > 0) (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
-                progressAnimatable.animateTo(
-                    targetValue = target,
-                    animationSpec = tween(durationMillis = 350, easing = LinearEasing)
-                )
+            LaunchedEffect(Unit) {
+                combine(viewModel.currentPosition, viewModel.duration) { pos, dur ->
+                    if (dur > 0) (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f) else 0f
+                }.distinctUntilChanged().collect { target ->
+                    progressAnimatable.animateTo(
+                        targetValue = target,
+                        animationSpec = tween(durationMillis = 350, easing = LinearEasing)
+                    )
+                }
             }
 
             val amplitudeAnimatable = remember { Animatable(if (isPlaying) 1f else 0f) }
@@ -1370,14 +1423,20 @@ private fun MiniPlayerContentInternal(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = currentSong.artist,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    color = contentSecondary
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text(
+                    text = currentSong.artist,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = contentSecondary
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+            }
         }
 
         // Controls Row using custom icons painterResource

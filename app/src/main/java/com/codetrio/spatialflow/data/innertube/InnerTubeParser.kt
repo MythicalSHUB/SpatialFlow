@@ -97,12 +97,20 @@ object InnerTubeParser {
 
             contents?.forEach { section ->
                 val obj = section.asJsonObject
+                val cardShelf = obj.getAsJsonObject("musicCardShelfRenderer")
                 val shelf = obj.getAsJsonObject("musicShelfRenderer")
-                    ?: obj.getAsJsonObject("musicCardShelfRenderer")
                     ?: obj.getAsJsonObject("itemSectionRenderer")
                     ?: obj.getAsJsonObject("gridRenderer")
 
-                if (shelf != null) {
+                if (cardShelf != null) {
+                    val (topResult, cardItems) = parseCardShelf(cardShelf)
+                    topResult?.let { items.add(it) }
+                    items.addAll(cardItems)
+                } else if (shelf != null) {
+                    val shelfTitle = shelf.path("title.runs.0.text")?.asString
+                    if (!shelfTitle.isNullOrBlank()) {
+                        items.add(SearchItem.Header(shelfTitle))
+                    }
                     val shelfContents = shelf.getAsJsonArray("contents") ?: shelf.getAsJsonArray("items")
                     shelfContents?.forEach { item ->
                         val itemObj = item.asJsonObject
@@ -150,6 +158,106 @@ object InnerTubeParser {
         return SearchResult(items, continuation)
     }
 
+    private fun parseCardShelf(cardShelf: JsonObject): Pair<SearchItem.TopResult?, List<SearchItem>> {
+        val items = mutableListOf<SearchItem>()
+        var topResult: SearchItem.TopResult? = null
+
+        try {
+            val title = cardShelf.path("title.runs.0.text")?.asString ?: ""
+            val subtitleRuns = cardShelf.path("subtitle.runs")?.asJsonArray
+            val subtitle = subtitleRuns?.joinToString("") { run ->
+                run.takeIf { run.isJsonObject }?.asJsonObject?.get("text")?.asString ?: ""
+            } ?: ""
+
+            val itemType = subtitle.split(" • ").firstOrNull()?.trim() ?: "Song"
+
+            val thumbnail = cardShelf.path("thumbnail.musicThumbnailRenderer.thumbnail.thumbnails")
+                ?.asJsonArray?.lastOrNull()?.asJsonObject?.get("url")?.asString
+
+            val titleNav = cardShelf.path("title.runs.0.navigationEndpoint")?.asJsonObject
+            val playNav = cardShelf.path("buttons.0.musicPlayButtonRenderer.playNavigationEndpoint")?.asJsonObject
+            val browseEndpoint = titleNav?.getAsJsonObject("browseEndpoint")
+                ?: playNav?.getAsJsonObject("browseEndpoint")
+            val watchEndpoint = playNav?.getAsJsonObject("watchEndpoint")
+                ?: titleNav?.getAsJsonObject("watchEndpoint")
+
+            var onlineSong: OnlineSong? = null
+            var onlineAlbum: OnlineAlbum? = null
+            var onlineArtist: OnlineArtist? = null
+            var onlinePlaylist: OnlinePlaylist? = null
+
+            if (browseEndpoint != null) {
+                val browseId = browseEndpoint.get("browseId")?.asString ?: ""
+                val pageType = browseEndpoint.path("browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType")?.asString ?: ""
+
+                when {
+                    pageType == "MUSIC_PAGE_TYPE_ARTIST" || browseId.startsWith("UC") || itemType.equals("Artist", ignoreCase = true) || subtitle.contains("Artist", ignoreCase = true) -> {
+                        onlineArtist = OnlineArtist(
+                            browseId = browseId,
+                            title = title,
+                            thumbnailUrl = thumbnail,
+                            subscriberCount = subtitle
+                        )
+                    }
+                    pageType == "MUSIC_PAGE_TYPE_ALBUM" || browseId.startsWith("MPREb") || itemType.equals("Album", ignoreCase = true) -> {
+                        onlineAlbum = OnlineAlbum(
+                            browseId = browseId,
+                            title = title,
+                            artists = listOf(OnlineArtistRef(subtitle.split(" • ").getOrNull(1) ?: "")),
+                            thumbnailUrl = thumbnail
+                        )
+                    }
+                    pageType == "MUSIC_PAGE_TYPE_PLAYLIST" || browseId.startsWith("VL") || browseId.startsWith("PL") || itemType.equals("Playlist", ignoreCase = true) -> {
+                        onlinePlaylist = OnlinePlaylist(
+                            playlistId = browseId.removePrefix("VL"),
+                            title = title,
+                            thumbnailUrl = thumbnail
+                        )
+                    }
+                }
+            }
+
+            if (onlineArtist == null && onlineAlbum == null && onlinePlaylist == null && watchEndpoint != null) {
+                val videoId = watchEndpoint.get("videoId")?.asString
+                if (videoId != null) {
+                    val artistText = subtitle.split(" • ").getOrNull(1) ?: ""
+                    onlineSong = OnlineSong(
+                        videoId = videoId,
+                        title = title,
+                        artist = artistText,
+                        thumbnailUrl = thumbnail
+                    )
+                }
+            }
+
+            if (title.isNotEmpty()) {
+                topResult = SearchItem.TopResult(
+                    title = title,
+                    subtitle = subtitle,
+                    itemType = itemType,
+                    thumbnailUrl = thumbnail,
+                    song = onlineSong,
+                    album = onlineAlbum,
+                    artist = onlineArtist,
+                    playlist = onlinePlaylist
+                )
+            }
+
+            val contents = cardShelf.getAsJsonArray("contents")
+            if (contents != null && contents.size() > 0) {
+                items.add(SearchItem.Header("MORE FROM YOUTUBE"))
+                contents.forEach { child ->
+                    val childObj = child.asJsonObject
+                    parseSearchItem(childObj)?.let { items.add(it) }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse musicCardShelfRenderer: ${e.message}")
+        }
+
+        return Pair(topResult, items)
+    }
+
     private fun parseSearchItem(item: JsonObject): SearchItem? {
         val renderer = item.getAsJsonObject("musicResponsiveListItemRenderer") ?: return null
 
@@ -158,73 +266,156 @@ object InnerTubeParser {
             val title = flexColumns?.getOrNull(0)?.asJsonObject
                 ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs.0.text")?.asString ?: return null
 
-            // Determine type from overlay/navigation
+            // Detect inline badges or type indicators
+            var detectedBadge: String? = null
+            var detectedTypeText: String? = null
+
+            val firstSubtitleRun = flexColumns.getOrNull(1)?.asJsonObject
+                ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs.0.text")?.asString?.trim()
+
+            if (firstSubtitleRun != null) {
+                if (firstSubtitleRun.equals("REMIX", ignoreCase = true) || firstSubtitleRun.contains("REMIX", ignoreCase = true)) {
+                    detectedBadge = "REMIX"
+                } else if (firstSubtitleRun.equals("Song", ignoreCase = true) || firstSubtitleRun.equals("Video", ignoreCase = true) || firstSubtitleRun.equals("EP", ignoreCase = true)) {
+                    detectedTypeText = firstSubtitleRun
+                }
+            }
+            if (detectedBadge == null && (title.contains("Remix", ignoreCase = true) || title.contains("Bass Boosted", ignoreCase = true))) {
+                detectedBadge = "REMIX"
+            }
+
             val overlay = renderer.path("overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint")?.asJsonObject
+
+            val titleBrowseEndpoint = flexColumns.getOrNull(0)?.asJsonObject
+                ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs.0.navigationEndpoint.browseEndpoint")?.asJsonObject
+                ?: renderer.path("navigationEndpoint.browseEndpoint")?.asJsonObject
+
+            val browseEndpoint = titleBrowseEndpoint
+                ?: renderer.path("navigationEndpoint.browseEndpoint")?.asJsonObject
 
             val watchEndpoint = overlay?.getAsJsonObject("watchEndpoint")
                 ?: renderer.path("navigationEndpoint.watchEndpoint")?.asJsonObject
                 ?: flexColumns.getOrNull(0)?.asJsonObject
                     ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs.0.navigationEndpoint.watchEndpoint")?.asJsonObject
-            val browseEndpoint = renderer.path("navigationEndpoint.browseEndpoint")?.asJsonObject
-                ?: flexColumns.getOrNull(0)?.asJsonObject
-                    ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs.0.navigationEndpoint.browseEndpoint")?.asJsonObject
 
-            when {
-                // Song (has watchEndpoint)
-                watchEndpoint != null -> {
-                    val videoId = watchEndpoint.get("videoId")?.asString ?: return null
-                    val subtitleRuns = flexColumns.getOrNull(1)?.asJsonObject
-                        ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs")?.asJsonArray
-                    
-                    var parsedArtist = ""
-                    var parsedArtistId: String? = null
-                    var parsedAlbumName: String? = null
-                    var parsedAlbumId: String? = null
-                    var durationText = ""
-                    
-                    subtitleRuns?.forEach { run ->
-                        val runObj = run.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
-                        val text = runObj.get("text")?.asString ?: ""
-                        val endpoint = runObj.path("navigationEndpoint.browseEndpoint")?.asJsonObject
-                        
-                        if (endpoint != null) {
-                            val bId = endpoint.get("browseId")?.asString
-                            val pageType = endpoint.path("browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType")?.asString
-                            
-                            if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL") {
-                                if (parsedArtistId == null) {
-                                    parsedArtistId = bId
-                                    parsedArtist = text
-                                }
-                            } else if (pageType == "MUSIC_PAGE_TYPE_ALBUM") {
-                                parsedAlbumId = bId
-                                parsedAlbumName = text
+            // 1. First check browseEndpoint to detect Artist, Album, Playlist
+            if (browseEndpoint != null) {
+                val browseId = browseEndpoint.get("browseId")?.asString ?: ""
+                val pageType = browseEndpoint.path("browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType")?.asString ?: ""
+
+                val subtitleRuns = flexColumns.getOrNull(1)?.asJsonObject
+                    ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs")?.asJsonArray
+                val subtitle = subtitleRuns?.joinToString("") { run ->
+                    run.takeIf { run.isJsonObject }?.asJsonObject?.get("text")?.asString ?: ""
+                } ?: ""
+                val thumbnail = parseThumbnail(renderer)
+
+                val isArtist = pageType == "MUSIC_PAGE_TYPE_ARTIST" || 
+                        pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL" || 
+                        browseId.startsWith("UC") || 
+                        browseId.startsWith("FEmusic_artist") ||
+                        firstSubtitleRun?.equals("Artist", ignoreCase = true) == true ||
+                        subtitle.contains("Artist", ignoreCase = true) ||
+                        subtitle.contains("subscriber", ignoreCase = true)
+
+                val isAlbum = pageType == "MUSIC_PAGE_TYPE_ALBUM" || 
+                        browseId.startsWith("MPREb") ||
+                        firstSubtitleRun?.equals("Album", ignoreCase = true) == true ||
+                        firstSubtitleRun?.equals("EP", ignoreCase = true) == true ||
+                        firstSubtitleRun?.equals("Single", ignoreCase = true) == true
+
+                val isPlaylist = pageType == "MUSIC_PAGE_TYPE_PLAYLIST" || 
+                        browseId.startsWith("VL") || 
+                        browseId.startsWith("PL") ||
+                        firstSubtitleRun?.equals("Playlist", ignoreCase = true) == true
+
+                when {
+                    isArtist -> {
+                        val subs = subtitle.split(" • ").firstOrNull { it.contains("subscriber", ignoreCase = true) }
+                        return SearchItem.Artist(OnlineArtist(
+                            browseId = browseId,
+                            title = title,
+                            thumbnailUrl = thumbnail,
+                            subscriberCount = subs ?: subtitle
+                        ))
+                    }
+                    isAlbum -> {
+                        val artistName = subtitle.split(" • ").firstOrNull { it.lowercase() != "album" && !it.matches(Regex("\\d{4}")) } ?: ""
+                        return SearchItem.Album(OnlineAlbum(
+                            browseId = browseId,
+                            title = title,
+                            artists = listOf(OnlineArtistRef(artistName)),
+                            thumbnailUrl = thumbnail,
+                            year = subtitle.split(" • ").lastOrNull()?.toIntOrNull()
+                        ))
+                    }
+                    isPlaylist -> {
+                        return SearchItem.Playlist(OnlinePlaylist(
+                            playlistId = browseId.removePrefix("VL"),
+                            title = title,
+                            thumbnailUrl = thumbnail,
+                            songCount = subtitle.split(" • ").lastOrNull()
+                        ))
+                    }
+                }
+            }
+
+            // 2. Fall back to Song if watchEndpoint is non-null
+            if (watchEndpoint != null) {
+                val videoId = watchEndpoint.get("videoId")?.asString ?: return null
+                val subtitleRuns = flexColumns.getOrNull(1)?.asJsonObject
+                    ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs")?.asJsonArray
+
+                var parsedArtist = ""
+                var parsedArtistId: String? = null
+                var parsedAlbumName: String? = null
+                var parsedAlbumId: String? = null
+                var durationText = ""
+
+                subtitleRuns?.forEach { run ->
+                    val runObj = run.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
+                    val text = runObj.get("text")?.asString ?: ""
+                    val endpoint = runObj.path("navigationEndpoint.browseEndpoint")?.asJsonObject
+
+                    if (endpoint != null) {
+                        val bId = endpoint.get("browseId")?.asString
+                        val pageType = endpoint.path("browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType")?.asString
+
+                        if (pageType == "MUSIC_PAGE_TYPE_ARTIST" || pageType == "MUSIC_PAGE_TYPE_USER_CHANNEL") {
+                            if (parsedArtistId == null) {
+                                parsedArtistId = bId
+                                parsedArtist = text
                             }
-                        } else {
-                            if (text.trim().matches(Regex("\\d+:\\d+"))) {
-                                durationText = text.trim()
-                            }
+                        } else if (pageType == "MUSIC_PAGE_TYPE_ALBUM") {
+                            parsedAlbumId = bId
+                            parsedAlbumName = text
+                        }
+                    } else {
+                        if (text.trim().matches(Regex("\\d+:\\d+"))) {
+                            durationText = text.trim()
                         }
                     }
-                    
-                    if (parsedArtist.isBlank()) {
-                        val subtitleText = subtitleRuns?.joinToString("") { run ->
-                            run.takeIf { run.isJsonObject }?.asJsonObject?.get("text")?.asString ?: ""
-                        } ?: ""
-                        parsedArtist = getCleanArtist(subtitleText)
-                    }
-                    if (durationText.isBlank()) {
-                        val fallback = subtitleRuns?.joinToString("") { run ->
-                            run.takeIf { run.isJsonObject }?.asJsonObject?.get("text")?.asString ?: ""
-                        }?.split(" • ")?.lastOrNull() ?: ""
-                        if (fallback.trim().matches(Regex("(\\d+:)?\\d+:\\d+"))) {
-                            durationText = fallback.trim()
-                        }
-                    }
-                    
-                    val thumbnail = parseThumbnail(renderer)
+                }
 
-                    SearchItem.Song(OnlineSong(
+                if (parsedArtist.isBlank()) {
+                    val subtitleText = subtitleRuns?.joinToString("") { run ->
+                        run.takeIf { run.isJsonObject }?.asJsonObject?.get("text")?.asString ?: ""
+                    } ?: ""
+                    parsedArtist = getCleanArtist(subtitleText)
+                }
+                if (durationText.isBlank()) {
+                    val fallback = subtitleRuns?.joinToString("") { run ->
+                        run.takeIf { run.isJsonObject }?.asJsonObject?.get("text")?.asString ?: ""
+                    }?.split(" • ")?.lastOrNull() ?: ""
+                    if (fallback.trim().matches(Regex("(\\d+:)?\\d+:\\d+"))) {
+                        durationText = fallback.trim()
+                    }
+                }
+
+                val thumbnail = parseThumbnail(renderer)
+
+                return SearchItem.Song(
+                    song = OnlineSong(
                         videoId = videoId,
                         title = title,
                         artist = parsedArtist.trim(),
@@ -234,83 +425,13 @@ object InnerTubeParser {
                         duration = durationText.trim().takeIf { it.isNotEmpty() },
                         durationMs = parseDuration(durationText.trim()),
                         thumbnailUrl = thumbnail
-                    ))
-                }
-                // Album or Artist (has browseEndpoint)
-                browseEndpoint != null -> {
-                    val browseId = browseEndpoint.get("browseId")?.asString ?: return null
-                    val pageType = browseEndpoint.path("browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType")?.asString
-
-                    val subtitleRuns = flexColumns.getOrNull(1)?.asJsonObject
-                        ?.path("musicResponsiveListItemFlexColumnRenderer.text.runs")?.asJsonArray
-                    val subtitle = subtitleRuns?.joinToString("") { run ->
-                        run.takeIf { run.isJsonObject }?.asJsonObject?.get("text")?.asString ?: ""
-                    } ?: ""
-                    val thumbnail = parseThumbnail(renderer)
-
-                    when (pageType) {
-                        "MUSIC_PAGE_TYPE_ALBUM" -> {
-                            val artistName = subtitle.split(" • ").drop(1).firstOrNull() ?: ""
-                            SearchItem.Album(OnlineAlbum(
-                                browseId = browseId,
-                                title = title,
-                                artists = listOf(OnlineArtistRef(artistName)),
-                                thumbnailUrl = thumbnail,
-                                year = subtitle.split(" • ").lastOrNull()?.toIntOrNull()
-                            ))
-                        }
-                        "MUSIC_PAGE_TYPE_ARTIST" -> {
-                            SearchItem.Artist(OnlineArtist(
-                                browseId = browseId,
-                                title = title,
-                                thumbnailUrl = thumbnail,
-                                subscriberCount = subtitle.takeIf { it.isNotBlank() }
-                            ))
-                        }
-                        "MUSIC_PAGE_TYPE_PLAYLIST" -> {
-                            SearchItem.Playlist(OnlinePlaylist(
-                                playlistId = browseId.removePrefix("VL"),
-                                title = title,
-                                thumbnailUrl = thumbnail,
-                                songCount = subtitle.split(" • ").lastOrNull()
-                            ))
-                        }
-                        else -> {
-                            // Try to infer from browseId prefix
-                            when {
-                                browseId.startsWith("UC") -> {
-                                    SearchItem.Artist(OnlineArtist(
-                                        browseId = browseId,
-                                        title = title,
-                                        thumbnailUrl = thumbnail,
-                                        subscriberCount = subtitle
-                                    ))
-                                }
-                                browseId.startsWith("VL") || browseId.startsWith("PL") -> {
-                                    SearchItem.Playlist(OnlinePlaylist(
-                                        playlistId = browseId.removePrefix("VL"),
-                                        title = title,
-                                        thumbnailUrl = thumbnail,
-                                        songCount = subtitle.split(" • ").lastOrNull()
-                                    ))
-                                }
-                                browseId.startsWith("MPREb") -> {
-                                    val artistName = subtitle.split(" • ").drop(1).firstOrNull() ?: ""
-                                    SearchItem.Album(OnlineAlbum(
-                                        browseId = browseId,
-                                        title = title,
-                                        artists = listOf(OnlineArtistRef(artistName)),
-                                        thumbnailUrl = thumbnail,
-                                        year = subtitle.split(" • ").lastOrNull()?.toIntOrNull()
-                                    ))
-                                }
-                                else -> null
-                            }
-                        }
-                    }
-                }
-                else -> null
+                    ),
+                    badge = detectedBadge,
+                    typeText = detectedTypeText
+                )
             }
+
+            null
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse search item: ${e.message}")
             null
@@ -319,7 +440,7 @@ object InnerTubeParser {
 
     // ========== Player Parsing ==========
 
-    fun parsePlayerResponse(json: JsonObject): PlayerResult? {
+    fun parsePlayerResponse(json: JsonObject, parseStreams: Boolean = true): PlayerResult? {
         try {
             val playabilityStatus = json.getAsJsonObject("playabilityStatus")
             val status = playabilityStatus?.get("status")?.asString
@@ -338,19 +459,28 @@ object InnerTubeParser {
             val thumbnail = videoDetails.path("thumbnail.thumbnails")?.asJsonArray
                 ?.lastOrNull()?.asJsonObject?.get("url")?.asString
 
+            val animatedThumbnailUrl = findAnimatedThumbnailUrl(json)
+
             val allFormats = mutableListOf<JsonElement>()
-            streamingData.getAsJsonArray("adaptiveFormats")?.let { allFormats.addAll(it) }
-            streamingData.getAsJsonArray("formats")?.let { allFormats.addAll(it) }
+            if (parseStreams) {
+                streamingData.getAsJsonArray("adaptiveFormats")?.let { allFormats.addAll(it) }
+                streamingData.getAsJsonArray("formats")?.let { allFormats.addAll(it) }
+            }
 
             var bestStream: StreamData? = null
             var highestBitrate = -1
+            var fallbackStream: StreamData? = null
+            var fallbackBitrate = -1
 
             allFormats.forEach { format ->
                 val obj = format.asJsonObject
                 val mimeType = obj.get("mimeType")?.asString ?: ""
                 
-                // Optimization step: Instant disqualification of non-audio payloads saves huge computation cycles
-                if (!mimeType.startsWith("audio/")) {
+                val isAudioOnly = mimeType.startsWith("audio/")
+                val isVideo = mimeType.startsWith("video/")
+                
+                // Keep audio and video streams. We'll prioritize audio, but use video as a fallback if no audio exists.
+                if (!isAudioOnly && !isVideo) {
                     return@forEach
                 }
 
@@ -386,37 +516,54 @@ object InnerTubeParser {
                 }
 
                 // Winner takes all architecture: Keep only the highest fidelity stream
-                if (url != null && bitrate > highestBitrate) {
-                    highestBitrate = bitrate
-                    bestStream = StreamData(
-                        url = url,
-                        mimeType = mimeType,
-                        bitrate = bitrate,
-                        contentLength = obj.get("contentLength")?.asLong,
-                        audioQuality = obj.get("audioQuality")?.asString
-                    )
+                if (url != null) {
+                    if (isAudioOnly) {
+                        if (bitrate > highestBitrate) {
+                            highestBitrate = bitrate
+                            bestStream = StreamData(
+                                url = url,
+                                mimeType = mimeType,
+                                bitrate = bitrate,
+                                contentLength = obj.get("contentLength")?.asLong,
+                                audioQuality = obj.get("audioQuality")?.asString
+                            )
+                        }
+                    } else if (bestStream == null && isVideo) {
+                        // If we haven't found an audio stream yet, keep track of the best video stream as a fallback
+                        if (bitrate > fallbackBitrate) {
+                            fallbackBitrate = bitrate
+                            fallbackStream = StreamData(
+                                url = url,
+                                mimeType = mimeType,
+                                bitrate = bitrate,
+                                contentLength = obj.get("contentLength")?.asLong,
+                                audioQuality = obj.get("audioQuality")?.asString
+                            )
+                        }
+                    }
                 }
             }
 
-            // Final load: Only output the absolute champion candidate 
+            // Final load: Use best audio stream, or fallback to video stream if absolutely necessary
+            val finalStream = bestStream ?: fallbackStream
             val streams = mutableListOf<StreamData>()
-            bestStream?.let { streams.add(it) }
+            finalStream?.let { streams.add(it) }
 
             Log.d(TAG, "Parsed player: $videoId — ${streams.size} audio streams from ${allFormats.size} total formats")
 
-            val tracking = json.getAsJsonObject("playbackTracking")
-            val playbackUrl = tracking?.getAsJsonObject("videostatsPlaybackUrl")?.get("baseUrl")?.asString
-            val watchtimeUrl = tracking?.getAsJsonObject("videostatsWatchtimeUrl")?.get("baseUrl")?.asString
+            val playbackTracking = json.getAsJsonObject("playbackTracking")
 
             return PlayerResult(
                 videoId = videoId,
                 title = title,
                 artist = author,
                 thumbnailUrl = thumbnail,
+                animatedThumbnailUrl = animatedThumbnailUrl,
                 durationMs = durationMs,
                 streams = streams,
-                playbackUrl = playbackUrl,
-                watchtimeUrl = watchtimeUrl
+                playbackUrl = bestStream?.url,
+                watchtimeUrl = playbackTracking?.path("videostatsWatchtimeUrl.baseUrl")?.asString,
+                likesCount = null
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing player response", e)
@@ -430,9 +577,32 @@ object InnerTubeParser {
         val sections = mutableListOf<HomeSection>()
 
         try {
-            val contents = json.path(
+            var contents = json.path(
                 "contents.singleColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.contents"
             )?.asJsonArray
+            if (contents == null) {
+                contents = json.path(
+                    "contents.twoColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.contents"
+                )?.asJsonArray
+            }
+            if (contents == null) {
+                contents = json.path(
+                    "contents.singleColumnBrowseResultsRenderer.tabs.1.tabRenderer.content.sectionListRenderer.contents"
+                )?.asJsonArray
+            }
+            if (contents == null) {
+                contents = json.path(
+                    "contents.twoColumnBrowseResultsRenderer.secondaryContents.sectionListRenderer.contents"
+                )?.asJsonArray
+            }
+            if (contents == null) {
+                contents = json.path(
+                    "contents.singleColumnBrowseResultsRenderer.contents.0.sectionListRenderer.contents"
+                )?.asJsonArray
+            }
+            if (contents == null) {
+                contents = json.path("contents.sectionListRenderer.contents")?.asJsonArray
+            }
 
             contents?.forEach { section ->
                 parseHomeSection(section.asJsonObject)?.let { sections.add(it) }
@@ -442,6 +612,11 @@ object InnerTubeParser {
             var continuation = json.path(
                 "contents.singleColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.continuations.0.nextContinuationData.continuation"
             )?.asString
+            if (continuation == null) {
+                continuation = json.path(
+                    "contents.twoColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.continuations.0.nextContinuationData.continuation"
+                )?.asString
+            }
 
             // Parse continuation sections too
             val contSections = json.path("continuationContents.sectionListContinuation.contents")?.asJsonArray
@@ -453,9 +628,14 @@ object InnerTubeParser {
             }
             // Extract Moods / Categories from Header Chips
             val moods = mutableListOf<String>()
-            val chips = json.path(
+            var chips = json.path(
                 "contents.singleColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.header.chipCloudRenderer.chips"
             )?.asJsonArray
+            if (chips == null) {
+                chips = json.path(
+                    "contents.twoColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.header.chipCloudRenderer.chips"
+                )?.asJsonArray
+            }
             chips?.forEach { chip ->
                 val text = chip.asJsonObject.path("chipCloudChipRenderer.text.runs.0.text")?.asString
                 if (!text.isNullOrBlank()) {
@@ -471,11 +651,96 @@ object InnerTubeParser {
         return HomePage(sections)
     }
 
+    fun parseMoodsAndGenresPage(json: JsonObject): List<HomeSection> {
+        val sections = mutableListOf<HomeSection>()
+        try {
+            val contents = json.path(
+                "contents.singleColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.contents"
+            )?.asJsonArray
+
+            contents?.forEach { section ->
+                val gridRenderer = section.asJsonObject.getAsJsonObject("gridRenderer")
+                val carouselRenderer = section.asJsonObject.getAsJsonObject("musicCarouselShelfRenderer")
+                
+                val title = section.asJsonObject.path("gridRenderer.header.gridHeaderRenderer.title.runs.0.text")?.asString
+                    ?: section.asJsonObject.path("musicCarouselShelfRenderer.header.musicCarouselShelfBasicHeaderRenderer.title.runs.0.text")?.asString
+                    ?: "Categories"
+                
+                val items = mutableListOf<SearchItem>()
+                val renderItems = gridRenderer?.getAsJsonArray("items")
+                    ?: carouselRenderer?.getAsJsonArray("contents")
+                
+                renderItems?.forEach { item ->
+                    val buttonRenderer = item.asJsonObject.getAsJsonObject("musicNavigationButtonRenderer")
+                    if (buttonRenderer != null) {
+                        val text = buttonRenderer.path("buttonText.runs.0.text")?.asString ?: return@forEach
+                        val browseId = buttonRenderer.path("clickCommand.browseEndpoint.browseId")?.asString ?: return@forEach
+                        val params = buttonRenderer.path("clickCommand.browseEndpoint.params")?.asString
+                        
+                        var thumbnail: String? = null
+                        var colorVal: Long? = null
+                        
+                        // Primary color source: solid.leftStripeColor (ARGB u32)
+                        // This is the main field returned by WEB_REMIX for mood/genre buttons
+                        colorVal = buttonRenderer.path("solid.leftStripeColor")?.asLong
+                        
+                        // Fallback: solidColorBackgroundAndImageRenderer (some client versions)
+                        val solidColorBgAndImage = buttonRenderer.getAsJsonObject("solidColorBackgroundAndImageRenderer")
+                        if (solidColorBgAndImage != null) {
+                            thumbnail = solidColorBgAndImage.path("image.musicThumbnailRenderer.thumbnail.thumbnails")
+                                ?.asJsonArray?.lastOrNull()?.asJsonObject?.get("url")?.asString
+                                ?: solidColorBgAndImage.path("image.thumbnail.thumbnails")
+                                    ?.asJsonArray?.lastOrNull()?.asJsonObject?.get("url")?.asString
+                                ?: solidColorBgAndImage.path("thumbnail.musicThumbnailRenderer.thumbnail.thumbnails")
+                                    ?.asJsonArray?.lastOrNull()?.asJsonObject?.get("url")?.asString
+                            
+                            if (colorVal == null) {
+                                colorVal = solidColorBgAndImage.path("color.color")?.asLong
+                                    ?: solidColorBgAndImage.path("solidColor.color")?.asLong
+                                    ?: solidColorBgAndImage.path("solidColor")?.asLong
+                            }
+                        }
+                        // Fallback thumbnail paths
+                        if (thumbnail == null) {
+                            thumbnail = buttonRenderer.path("thumbnail.musicThumbnailRenderer.thumbnail.thumbnails")
+                                ?.asJsonArray?.lastOrNull()?.asJsonObject?.get("url")?.asString
+                                ?: buttonRenderer.path("thumbnail.thumbnails")
+                                    ?.asJsonArray?.lastOrNull()?.asJsonObject?.get("url")?.asString
+                                ?: buttonRenderer.path("icon.thumbnails")
+                                    ?.asJsonArray?.lastOrNull()?.asJsonObject?.get("url")?.asString
+                        }
+                        
+                        items.add(SearchItem.Playlist(
+                            OnlinePlaylist(
+                                playlistId = "GENRE::$browseId::${params ?: ""}",
+                                title = text,
+                                thumbnailUrl = getHighResThumbnailUrl(thumbnail),
+                                color = colorVal
+                            )
+                        ))
+                    }
+                }
+                
+                if (items.isNotEmpty()) {
+                    sections.add(HomeSection(title, items))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing moods and genres page", e)
+        }
+        return sections
+    }
+
     private fun parseHomeSection(section: JsonObject): HomeSection? {
-        val carousel = section.getAsJsonObject("musicCarouselShelfRenderer") ?: return null
+        val carousel = section.getAsJsonObject("musicCarouselShelfRenderer") 
+            ?: section.getAsJsonObject("musicImmersiveCarouselShelfRenderer")
+            ?: return null
+            
         val header = carousel.path(
             "header.musicCarouselShelfBasicHeaderRenderer.title.runs.0.text"
-        )?.asString ?: return null
+        )?.asString 
+            ?: carousel.path("header.musicImmersiveCarouselShelfHeaderRenderer.title.runs.0.text")?.asString
+            ?: return null
 
         val items = mutableListOf<SearchItem>()
         val contents = carousel.getAsJsonArray("contents")
@@ -1067,10 +1332,47 @@ object InnerTubeParser {
         }
     }
 
+    private fun findAnimatedThumbnailUrl(element: JsonElement): String? {
+        if (element.isJsonArray) {
+            for (item in element.asJsonArray) {
+                val result = findAnimatedThumbnailUrl(item)
+                if (result != null) return result
+            }
+        } else if (element.isJsonObject) {
+            val obj = element.asJsonObject
+            
+            // Specifically look for YouTube Music's animated renderer
+            if (obj.has("musicAnimatedThumbnailRenderer")) {
+                val animatedRenderer = obj.getAsJsonObject("musicAnimatedThumbnailRenderer")
+                val thumbnails = animatedRenderer?.getAsJsonObject("thumbnail")?.getAsJsonArray("thumbnails")
+                if (thumbnails != null && thumbnails.size() > 0) {
+                    return thumbnails.get(0).asJsonObject.get("url")?.asString
+                }
+            }
+
+            // Look for any thumbnail that is an mp4 or webp
+            if (obj.has("thumbnails")) {
+                val arr = obj.getAsJsonArray("thumbnails")
+                for (i in 0 until arr.size()) {
+                    val url = arr.get(i).asJsonObject.get("url")?.asString
+                    if (url != null && (url.contains(".mp4") || url.contains("sqp="))) {
+                        return url
+                    }
+                }
+            }
+
+            for ((_, value) in obj.entrySet()) {
+                val result = findAnimatedThumbnailUrl(value)
+                if (result != null) return result
+            }
+        }
+        return null
+    }
+
     private fun getCleanArtist(subtitleText: String): String {
         val ignoredTypes = setOf("song", "video", "single", "ep", "album", "artist", "playlist")
-        val parts = subtitleText.split(" • ").map { it.trim() }
-        val cleanParts = parts.filter { it.lowercase() !in ignoredTypes && it.isNotEmpty() }
+        val parts = subtitleText.split(" • ", "   ").map { it.trim() }
+        val cleanParts = parts.filter { it.lowercase() !in ignoredTypes && it.isNotEmpty() && !it.matches(Regex("(\\d+:)?\\d+:\\d+")) }
         return cleanParts.firstOrNull() ?: "Unknown Artist"
     }
 
@@ -1118,4 +1420,32 @@ fun JsonElement?.path(path: String): JsonElement? {
 /** Safe getOrNull for JsonArray */
 fun JsonArray.getOrNull(index: Int): JsonElement? {
     return if (index in 0 until size()) get(index) else null
+}
+
+private val wHPathRegex = Regex("w\\d+-h\\d+")
+private val wHParamRegex = Regex("=w\\d+-h\\d+")
+private val sParamRegex = Regex("=s\\d+")
+private val brokenSAppendRegex = Regex("-c-k-c0x[0-9a-fA-F]+")
+
+fun String.resize(width: Int? = null, height: Int? = null): String {
+    if (width == null && height == null) return this
+    val isGoogleCdn = contains("googleusercontent.com") || contains("ggpht.com")
+
+    if (isGoogleCdn) {
+        val w = width ?: height!!
+        val h = height ?: width!!
+        
+        if (wHPathRegex.containsMatchIn(this)) {
+            return replace(wHPathRegex, "w$w-h$h")
+        }
+        wHParamRegex.find(this)?.let {
+            return "${split("=w")[0]}=w$w-h$h-p-l90-rj"
+        }
+        sParamRegex.find(this)?.let { match ->
+            val before = substring(0, match.range.first)
+            val after = substring(match.range.last + 1)
+            return "$before=s${maxOf(w, h)}${after.replace(brokenSAppendRegex, "")}"
+        }
+    }
+    return this
 }
