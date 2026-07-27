@@ -1,346 +1,208 @@
-SpatialFlow
+<p align="center">
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" width="120" alt="SpatialFlow Logo" />
+</p>
+
+<h1 align="center">SpatialFlow</h1>
 
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" width="120" alt="SpatialFlow Logo"/>
-</p><h1 align="center">SpatialFlow</h1><p align="center">
-  A modern open-source hybrid music player for Android that seamlessly combines local audio playback and online music streaming within a beautiful Material Design 3 Expressive experience.
-</p><p align="center">
-  Built with Kotlin, Jetpack Compose, Media3, and modern Android architecture.
-</p><p align="center">
-  <b>Hybrid Streaming • Material You • Dynamic Theming • Volume Normalization • Open Source</b>
-</p><p align="center">
-  <img src="https://img.shields.io/github/downloads/MythicalSHUB/SpatialFlow/total?color=5C7AEA&style=for-the-badge" />
-  <img src="https://img.shields.io/github/v/release/MythicalSHUB/SpatialFlow?color=4ADE80&style=for-the-badge" />
-  <img src="https://img.shields.io/github/actions/workflow/status/MythicalSHUB/SpatialFlow/release.yml?style=for-the-badge&label=BUILD" />
-  <img src="https://img.shields.io/github/issues/MythicalSHUB/SpatialFlow?color=EF4444&style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" />
-  <img src="https://img.shields.io/badge/Language-Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" />
-  <img src="https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white" />
-  <img src="https://img.shields.io/github/license/MythicalSHUB/SpatialFlow?color=10B981&style=for-the-badge" />
-</p><p align="center">
-  <a href="#features">Features</a> •
-  <a href="#screenshots">Screenshots</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#roadmap">Roadmap</a> •
-  <a href="#contributing">Contributing</a> •
-  <a href="#license">License</a>
-</p>---
-
-Project Status
-
-SpatialFlow is actively maintained and continuously evolving.
-
-Current development focus:
-
-- Material Design 3 Expressive enhancements
-- Streaming platform improvements
-- Audio engine refinements
-- Performance optimization
-- Accessibility improvements
-- Modern Android API adoption
-
----
-
-About SpatialFlow
-
-SpatialFlow is a next-generation Android music player designed to bridge the gap between local media libraries and online streaming services.
-
-Built entirely with Kotlin and Jetpack Compose, the application leverages Android's latest technologies including Media3, Coroutines, StateFlow, Material Design 3 Expressive, and modern architecture principles to provide a smooth, reliable, and immersive listening experience.
-
-Whether listening to locally stored high-fidelity audio files or streaming music online, SpatialFlow delivers premium playback through Media3, dynamic album-art-based theming, advanced audio processing, and a polished user experience optimized for modern Android devices.
-
----
-
-Features
-
-Music Library
-
-- Automatic local media scanning
-- Support for MP3, FLAC, AAC, WAV, OGG, M4A and common audio formats
-- Fast search and filtering
-- Smart album and artist organization
-- Unified playback queue management
-
-Online Streaming
-
-- YouTube Music powered discovery
-- Search songs, albums, artists and playlists
-- Stream music without requiring an account
-- Unified local and online playback experience
-- Seamless media queue integration
-
-Advanced Audio Engineering
-
-Real-Time Volume Normalization
-
-- LUFS-based loudness normalization
-- Automatic gain adjustment
-- Consistent listening volume across tracks
-- Default target loudness: -14 LUFS
-
-Playback Enhancements
-
-- Gapless playback
-- Custom crossfade transitions
-- Smart queue management
-- High-performance Media3 playback engine
-
-Audio Effects
-
-- Multi-band Equalizer
-- Bass Boost
-- Loudness Enhancer
-- Environmental Reverb
-- Audio balance controls
-- Device audio session integration
-
-Premium User Experience
-
-Material Design 3 Expressive
-
-- Fully Compose-based UI
-- Expressive layouts and animations
-- Spring physics interactions
-- Responsive adaptive components
-
-Dynamic Theming
-
-- Real-time album art color extraction
-- Dynamic Material You integration
-- Adaptive color generation
-- Personalized playback screens
-
-Appearance
-
-- AMOLED Pure Black Mode
-- Dynamic navigation labels
-- Modern onboarding experience
-- Smooth loading animations
-- Fluid transitions throughout the application
-
-Performance
-
-- Optimized memory management
-- Reactive UI updates
-- Coroutines-powered asynchronous operations
-- Efficient image loading
-- Fast library indexing
-- Smooth scrolling and animations
-
----
-
-Screenshots
+  A modern, unified Android music player built with Jetpack Compose, Material Design 3 Expressive, and advanced audio processing for local libraries and online streaming.
+</p>
 
 <p align="center">
-  <img src="AppScreenShot/1.png" width="30%">
-  <img src="AppScreenShot/2.png" width="30%">
-  <img src="AppScreenShot/3.png" width="30%">
-</p><p align="center">
-  <img src="AppScreenShot/4.png" width="30%">
-  <img src="AppScreenShot/5.png" width="30%">
-  <img src="AppScreenShot/6.png" width="30%">
-</p><p align="center">
-  <img src="AppScreenShot/7.png" width="30%">
-  <img src="AppScreenShot/8.png" width="30%">
-  <img src="AppScreenShot/9.png" width="30%">
-</p><p align="center">
-  <img src="AppScreenShot/10.png" width="30%">
-  <img src="AppScreenShot/11.png" width="30%">
-  <img src="AppScreenShot/12.png" width="30%">
-</p><p align="center">
-  <img src="AppScreenShot/13.png" width="30%">
-</p>---
+  <b>Hybrid Streaming | New Expressive UI | Material You | Dynamic Theming | Volume Normalization | Open Source</b>
+</p>
 
-Architecture
+<p align="center">
+  <a href="#about-spatialflow"><b>About</b></a> •
+  <a href="#features"><b>Features</b></a> •
+  <a href="#screenshots"><b>Screenshots</b></a> •
+  <a href="#tech-stack--architecture"><b>Architecture</b></a> •
+  <a href="#installation"><b>Download</b></a> •
+  <a href="#community--support"><b>Community & Support</b></a>
+</p>
 
-SpatialFlow follows a modern MVI-inspired architecture focused on scalability, maintainability, and predictable state management.
-
-Core Architecture Layers
-
-Layer| Responsibility
-Presentation| Jetpack Compose UI
-State Management| ViewModel + StateFlow
-Domain| Business Logic
-Data| Repository Layer
-Networking| Ktor Client
-Playback| AndroidX Media3
-Dependency Injection| Koin
-Concurrency| Kotlin Coroutines
-
-Design Principles
-
-- Single Source of Truth
-- Unidirectional Data Flow
-- Reactive State Management
-- Modular Feature Design
-- Lifecycle-Aware Components
-- Separation of Concerns
-- Scalable Codebase Structure
+<p align="center">
+  <img src="https://img.shields.io/github/downloads/MythicalSHUB/SpatialFlow/total?color=5C7AEA&style=for-the-badge" alt="Downloads" />
+  <img src="https://img.shields.io/github/v/release/MythicalSHUB/SpatialFlow?color=4ADE80&style=for-the-badge" alt="Release" />
+  <img src="https://img.shields.io/github/actions/workflow/status/MythicalSHUB/SpatialFlow/release.yml?style=for-the-badge&label=BUILD" alt="Build Status" />
+  <img src="https://img.shields.io/github/stars/MythicalSHUB/SpatialFlow?color=F59E0B&style=for-the-badge" alt="Stars" />
+  <img src="https://img.shields.io/github/license/MythicalSHUB/SpatialFlow?color=10B981&style=for-the-badge" alt="License" />
+  <br/>
+  <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Platform" />
+  <img src="https://img.shields.io/badge/Language-Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="Language" />
+  <img src="https://img.shields.io/badge/UI-New_Compose_UI-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="New Compose UI" />
+  <img src="https://img.shields.io/badge/Design-M3_Expressive-FF4081?style=for-the-badge&logo=materialdesign&logoColor=white" alt="M3 Expressive" />
+  <a href="https://t.me/SpatialFlow"><img src="https://img.shields.io/badge/Telegram-Join_Community-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram Community" /></a>
+  <a href="https://ko-fi.com/mythicalshub"><img src="https://img.shields.io/badge/Ko--fi-Support_Project-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Support on Ko-fi" /></a>
+</p>
 
 ---
 
-Tech Stack
+## About SpatialFlow
 
-Component| Technology
-Language| Kotlin 1.9+
-UI Toolkit| Jetpack Compose
-Design System| Material Design 3 Expressive
-Architecture| MVI Inspired
-Media Engine| AndroidX Media3
-Networking| Ktor Client
-Dependency Injection| Koin
-Concurrency| Kotlin Coroutines
-State Management| StateFlow
-Image Loading| Coil
+**SpatialFlow** is a next-generation Android audio experience designed to seamlessly unify local music collections and online streaming into a single, cohesive application. Built natively with Kotlin and Jetpack Compose, it features an adaptive user interface that dynamically extracts colors from album artwork in real time to generate custom Material Design 3 Expressive themes.
+
+Whether playing high-fidelity offline files from internal storage or streaming directly from YouTube Music, SpatialFlow delivers high-performance playback through AndroidX Media3 (ExoPlayer), integrated with studio-grade volume normalization, custom crossfading, multi-provider lyrics, and responsive system haptics.
 
 ---
 
-Requirements
+## Features
 
-Component| Version
-Minimum SDK| 24 (Android 7.0)
-Target SDK| 35
-Java Version| JDK 17
-Android Studio| Koala or Newer
+### Hybrid Playback System
+- **Local Storage Library:** High-speed storage scanner supporting MP3, FLAC, AAC, WAV, and standard Android audio formats.
+- **Online Streaming:** Built-in InnerTube API (WebRemix) integration to search, browse, and stream audio directly from YouTube Music without requiring accounts.
+- **Unified Queue Management:** Combine local audio files and online streams into a single playback queue.
+
+### Advanced Audio Engineering
+- **Real-Time Volume Normalization (LUFS):** On-the-fly gain analysis and calculation ensuring uniform loudness across offline and online tracks (Default target: -14 LUFS).
+- **Custom Crossfade:** Smooth, configurable gapless transitions and overlapping fades between tracks.
+- **Built-in Equalizer & Effects:** Multi-band equalizer with customizable presets, Bass Boost, Loudness Enhancer, and Environmental Reverb.
+
+### Synchronized Lyrics & Player Canvas
+- **Multi-Provider Lyrics Engine:** Automatic lyric fetching across multiple sources including YouLyPlus, LRCLIB, Paxsenix, and BetterLyrics.
+- **Word-by-Word Karaoke:** High-precision TTML and LRC syllable sync rendering for line-by-line and word-by-word karaoke visualization.
+- **Interactive Player Canvas:** Dynamic background visualizer and smooth canvas animations synced to audio playback.
+
+### Premium Material Design 3 Expressive UI
+- **Dynamic Color Engine:** Real-time color palette generation derived from active track artwork.
+- **Modern UI Components:** Custom glassmorphism panels, spring-physics animations, fluid skeleton shimmers, and responsive layouts.
+- **Appearance Customization:** Full support for pure dark (AMOLED) mode, custom accent themes, and dynamic navigation labels.
 
 ---
 
-Installation
+## Screenshots
 
-Download APK
+<p align="center">
+  <img src="AppScreenShot/1.png" width="30%" />
+  <img src="AppScreenShot/2.png" width="30%" />
+  <img src="AppScreenShot/3.png" width="30%" />
+</p>
+<p align="center">
+  <img src="AppScreenShot/4.png" width="30%" />
+  <img src="AppScreenShot/5.png" width="30%" />
+  <img src="AppScreenShot/6.png" width="30%" />
+</p>
+<p align="center">
+  <img src="AppScreenShot/7.png" width="30%" />
+  <img src="AppScreenShot/8.png" width="30%" />
+  <img src="AppScreenShot/9.png" width="30%" />
+</p>
+<p align="center">
+  <img src="AppScreenShot/10.png" width="30%" />
+  <img src="AppScreenShot/11.png" width="30%" />
+  <img src="AppScreenShot/12.png" width="30%" />
+</p>
+<p align="center">
+  <img src="AppScreenShot/13.png" width="30%" />
+</p>
 
-Download the latest stable release directly from GitHub Releases:
+---
 
-https://github.com/MythicalSHUB/SpatialFlow/releases
+## Tech Stack & Architecture
 
-Build From Source
+| Layer | Technology |
+| :--- | :--- |
+| **Language** | Kotlin 1.9+ |
+| **UI Toolkit** | Jetpack Compose (Material Design 3 Expressive) |
+| **Architecture** | MVI (Model-View-Intent) Presentation Layer |
+| **Media Engine** | AndroidX Media3 (ExoPlayer) |
+| **Dependency Injection** | Koin for Android |
+| **Networking** | Ktor Client + Coroutines & StateFlow |
+| **Data Extraction** | InnerTube Models + NewPipe Extractor |
 
+---
+
+## Requirements
+
+| Parameter | Minimum / Required |
+| :--- | :--- |
+| **Minimum SDK** | API 24 (Android 7.0 Nougat) |
+| **Target SDK** | API 35 (Android 15) |
+| **JDK Version** | Java Development Kit 17 |
+
+---
+
+## Installation
+
+### Download Pre-Built APK
+Download the latest APK release directly from GitHub:
+[Download SpatialFlow Releases](https://github.com/MythicalSHUB/SpatialFlow/releases)
+
+### Build from Source Code
+```bash
 git clone https://github.com/MythicalSHUB/SpatialFlow.git
-
 cd SpatialFlow
-
-1. Open the project in Android Studio.
-2. Allow Gradle Sync to complete.
-3. Build and run on your device.
-
----
-
-In-App Updater
-
-SpatialFlow includes a built-in update system.
-
-Features:
-
-- GitHub Releases integration
-- Automatic update checking
-- Direct APK download support
-- Native Android Package Installer integration
-- Seamless update experience
+```
+1. Open the project in Android Studio (Koala edition or newer recommended).
+2. Allow Gradle sync to download dependencies and setup the workspace.
+3. Select an active device or emulator and run the `app` target.
 
 ---
 
-Roadmap
+## In-App Auto Updater
 
-Completed
-
-- Local Audio Playback
-- YouTube Music Streaming
-- Dynamic Theming
-- Material Design 3 Expressive UI
-- Volume Normalization
-- Equalizer Support
-- Audio Effects
-- In-App Updates
-
-Planned
-
-- Lyrics Support
-- Android Auto
-- Chromecast
-- Playlist Backup & Sync
-- Wear OS Companion
-- Advanced Recommendation Engine
-- Desktop Companion Application
+SpatialFlow includes an integrated update manager:
+- Automatically checks GitHub Releases for new updates on launch.
+- Provides one-tap direct APK download within the app.
+- Seamless installation managed via Android Package Installer.
 
 ---
 
-Contributing
+## Contributing
 
-Contributions are welcome and appreciated.
-
-To contribute:
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push your branch
-5. Open a Pull Request
-
-Please use GitHub Issues for:
-
-- Bug Reports
-- Feature Requests
-- UI Suggestions
-- Performance Improvements
+Contributions, bug reports, and feature requests are welcome:
+1. Review open issues on the GitHub repository.
+2. Fork the project repository and create a feature branch.
+3. Submit a Pull Request detailing your changes.
 
 ---
 
-Credits & Acknowledgements
+## Community & Support
 
-SpatialFlow stands on the shoulders of incredible open-source projects.
-
-Special thanks to:
-
-- AndroidX Media3 (ExoPlayer)
-- NewPipe Extractor
-- Koin
-- Ktor
-- Coil
-- InnerTune
-- OuterTune
-- PixelPlayer
-- Material Design 3
-
-Their work has greatly contributed to the Android open-source ecosystem.
+Join the official SpatialFlow community or support ongoing development:
+- **Telegram Group:** [t.me/SpatialFlow](https://t.me/SpatialFlow) — Support, discussions, and updates.
+- **Support Development:** [<img src="https://img.shields.io/badge/Ko--fi-Support_Development-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" height="24" />](https://ko-fi.com/mythicalshub) — Help keep the project open-source and active.
+- **Pull Requests:** [<img src="https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge&logo=github" height="24" />](https://github.com/MythicalSHUB/SpatialFlow/pulls) — Contributions are always welcome!
 
 ---
 
-Developer
+## Credits & Acknowledgements
 
-Shubham Karande
+SpatialFlow is built upon open-source software and community projects:
 
-Android Developer focused on building modern, high-performance, and open-source mobile experiences.
-
-Interests
-
-- Android Development
-- Kotlin & Jetpack Compose
-- Media Applications
-- Audio Processing
-- Material Design
-- Open Source Software
+- **[ArchiveTune](https://github.com/rukamori/ArchiveTune):** Foundation for the lyrics engine, player canvas, UI animations, and lyrics providers.
+- **[InnerTune](https://github.com/z-huang/InnerTune):** Foundational architecture and core player model design.
+- **[OuterTune](https://github.com/OuterTune/OuterTune):** Logic and structure for InnerTube API calls and streaming metadata retrieval.
+- **[PixelPlayer](https://github.com/PixelPlayerHQ/PixelPlayer):** Design inspiration for the mini player layout and onboarding interface.
+- **[Material Design 3](https://m3.material.io/):** Google's design system providing expressive UI components.
 
 ---
 
-<p align="center">
-  Built with ❤️ using Kotlin, Jetpack Compose, and Android Media3.
-</p><p align="center">
-  If you enjoy SpatialFlow, consider giving the repository a ⭐
-</p>---
+## Developer
 
-License
+**Shubham Karande**  
+Focused on building modern, fluid, and open-source Android applications.
 
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+```text
 MIT License
 
 Copyright (c) 2026 Shubham Karande
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software.
-
-See the LICENSE file for complete details.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software...
+```
 
 ---
 
-Keywords
+## Keywords
 
-SpatialFlow, Android Music Player, Jetpack Compose Music Player, Material You Audio Player, Media3 Player, ExoPlayer Android App, Open Source Music Player, Hybrid Streaming Music App, Kotlin Android Application, Volume Normalization, LUFS Audio Processing, Equalizer Android App, YouTube Music Client, Material Design 3 Expressive.
+SpatialFlow, SpatialFlow Android App, Spatial Flow, Jetpack Compose Music Player, Material Design 3 Expressive, Material You Audio Player, Dynamic Color Theming, YouTube Music Streaming App, InnerTube API Client, YouTube Music Player Android, AndroidX Media3 Player, ExoPlayer Android, Open Source Spotify Alternative, Open Source YouTube Music Alternative, InnerTune Alternative, OuterTune Alternative, ViMusic Alternative, ArchiveTune, PixelPlayer, Kotlin Music Player, LUFS Normalization, ReplayGain Android, Audio Gain Calculation, Real-time Volume Normalizer, Custom Audio Crossfade, Gapless Playback, 5-Band Audio Equalizer, Bass Boost Android, Environmental Reverb, Loudness Enhancer, Word-by-Word Karaoke Lyrics, Syllable Synced Lyrics, TTML Lyrics Parser, LRC Lyrics Parser, YouLyPlus Provider, LRCLIB Lyrics, Paxsenix Lyrics, BetterLyrics Provider, Multi-Provider Lyrics Engine, Animated Player Canvas, Audio Visualizer Canvas, AMOLED Pure Black Dark Mode, Glassmorphism UI Android, Spring Physics Animations, MVI Architecture Compose, Koin Dependency Injection, Ktor HTTP Client, Offline Music Scanner, FLAC Lossless Player, MP3 Audio Player, AAC Audio Player, Unified Playback Queue, In-App Auto Updater, Android 15 Audio App, Open Source Android Media Player.
