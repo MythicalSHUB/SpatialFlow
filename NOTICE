@@ -1,0 +1,114 @@
+SpatialFlow
+Copyright © 2026 Shubham Karande.
+All Rights Reserved Except Where Explicitly Licensed.
+
+===============================================================================
+                                NOTICE
+===============================================================================
+
+Thank you for using SpatialFlow.
+
+SpatialFlow is an open-source Android music player developed and maintained by
+Shubham Karande. The project represents significant investment in software
+engineering, user experience design, audio technologies, and community-driven
+development.
+
+This NOTICE file accompanies the Apache License, Version 2.0, under which the
+source code is distributed.
+
+===============================================================================
+ATTRIBUTION
+===============================================================================
+
+If you use, modify, adapt, port, or incorporate substantial portions of
+SpatialFlow's source code, application architecture, user interface, custom
+components, algorithms, resources, or implementation into another project,
+appropriate attribution to the original project is strongly requested.
+
+Suggested attribution:
+
+    Based on SpatialFlow by Shubham Karande
+    https://github.com/MythicalSHUB/SpatialFlow
+
+or
+
+    This project incorporates code from SpatialFlow
+    Copyright © 2026 Shubham Karande
+    https://github.com/MythicalSHUB/SpatialFlow
+
+While the Apache License 2.0 does not require visible attribution in product
+documentation, README files, or application interfaces, acknowledging the
+original project is greatly appreciated and helps support continued open-source
+development.
+
+===============================================================================
+BRANDING
+===============================================================================
+
+The Apache License applies only to the source code unless otherwise stated.
+
+The following are NOT licensed under the Apache License and may not be copied,
+redistributed, or used to imply endorsement without prior written permission
+from the copyright holder:
+
+• SpatialFlow name
+• SpatialFlow logo
+• Application icon
+• Branding and visual identity
+• Screenshots and promotional graphics
+• Artwork and marketing materials
+• Official release assets
+• Website branding
+• Social media branding
+• Documentation graphics
+
+Forks and derivative works must not present themselves as the official
+SpatialFlow project or imply affiliation with the original author.
+
+===============================================================================
+THIRD-PARTY SOFTWARE
+===============================================================================
+
+SpatialFlow includes or depends upon third-party open-source libraries,
+frameworks, and services, each of which remains licensed under its respective
+license.
+
+Users and redistributors are responsible for complying with all applicable
+third-party license terms.
+
+===============================================================================
+CONTRIBUTIONS
+===============================================================================
+
+Unless explicitly stated otherwise, any contribution intentionally submitted
+for inclusion in SpatialFlow shall be licensed under the same terms as the
+project's Apache License, Version 2.0.
+
+===============================================================================
+SUPPORT THE PROJECT
+===============================================================================
+
+If SpatialFlow has been helpful to you or your project, please consider:
+
+• Starring the GitHub repository
+• Providing attribution when using substantial portions of the project
+• Reporting issues and contributing improvements
+• Sharing the project with the community
+
+GitHub Repository:
+https://github.com/MythicalSHUB/SpatialFlow
+
+===============================================================================
+DISCLAIMER
+===============================================================================
+
+This NOTICE file is provided for informational purposes only and supplements
+the Apache License, Version 2.0.
+
+Nothing in this NOTICE modifies, limits, or supersedes the rights granted under
+the Apache License.
+
+Any requests regarding branding, trademarks, logos, commercial partnerships,
+or other permissions should be directed to the project maintainer.
+
+===============================================================================
