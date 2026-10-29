@@ -175,7 +175,7 @@ Join the official SpatialFlow community or support ongoing development:
 
 SpatialFlow is built upon open-source software and community projects:
 
-- **[ArchiveTune](https://github.com/rukamori/ArchiveTune):** Foundation for the lyrics engine, player canvas, UI animations, and lyrics providers.
+- **[ArchiveTune 4nx3b's Fork](https://github.com/4nx3b/ArchiveTune):** Foundation for the lyrics engine, player canvas, UI animations, and lyrics providers.
 - **[InnerTune](https://github.com/z-huang/InnerTune):** Foundational architecture and core player model design.
 - **[OuterTune](https://github.com/OuterTune/OuterTune):** Logic and structure for InnerTube API calls and streaming metadata retrieval.
 - **[PixelPlayer](https://github.com/PixelPlayerHQ/PixelPlayer):** Design inspiration for the mini player layout and onboarding interface.
